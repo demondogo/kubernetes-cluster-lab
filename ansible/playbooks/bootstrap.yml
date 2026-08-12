@@ -6,3 +6,9 @@
 
   roles:
     - common
+
+- name: Configure management jumpbox
+  hosts: jumpboxes
+
+  roles:
+    - jumpbox

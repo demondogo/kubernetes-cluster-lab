@@ -1,0 +1,42 @@
+---
+# ---------------------------------------------------------------------------
+# Jumpbox Role
+# ---------------------------------------------------------------------------
+#
+# Purpose:
+#   Configure the Kubernetes lab management node.
+#
+# Responsibilities:
+#   - Install management utilities
+#   - Create the cluster machine inventory
+#   - Clone Kubernetes The Hard Way as a reference
+#
+# Kubernetes binaries, PKI, and cluster configuration are intentionally
+# handled separately as part of the Kubernetes The Hard Way workflow.
+# ---------------------------------------------------------------------------
+
+- name: Install jumpbox management packages
+  ansible.builtin.apt:
+    name: "{{ jumpbox_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+
+- name: Create cluster machine inventory
+  ansible.builtin.template:
+    src: machines.txt.j2
+    dest: "{{ jumpbox_home }}/machines.txt"
+    owner: "{{ jumpbox_user }}"
+    group: "{{ jumpbox_user }}"
+    mode: "0644"
+
+- name: Clone Kubernetes The Hard Way repository
+  ansible.builtin.git:
+    repo: "{{ kthw_repository }}"
+    dest: "{{ kthw_directory }}"
+    version: "{{ kthw_version }}"
+    depth: 1
+    update: true
+  become: true
+  become_user: "{{ jumpbox_user }}"

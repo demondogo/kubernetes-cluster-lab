@@ -1,0 +1,4 @@
+# host_vars/node-1.yml
+---
+node_ip: 192.168.56.60
+pod_cidr: 10.200.1.0/24

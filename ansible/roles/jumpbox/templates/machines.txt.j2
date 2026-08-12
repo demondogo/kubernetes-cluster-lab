@@ -1,0 +1,6 @@
+{% for host in groups['control_plane'] %}
+{{ hostvars[host]['node_ip'] }} {{ host }}.kubernetes.local {{ host }}
+{% endfor %}
+{% for host in groups['workers'] %}
+{{ hostvars[host]['node_ip'] }} {{ host }}.kubernetes.local {{ host }} {{ hostvars[host]['pod_cidr'] }}
+{% endfor %}

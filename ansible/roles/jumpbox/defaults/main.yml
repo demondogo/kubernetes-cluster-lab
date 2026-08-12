@@ -1,0 +1,15 @@
+---
+# Jumpbox user and workspace
+jumpbox_user: vagrant
+jumpbox_home: "/home/{{ jumpbox_user }}"
+
+# Management packages
+jumpbox_packages:
+  - git
+  - jq
+  - tree
+
+# Kubernetes The Hard Way reference repository
+kthw_repository: "https://github.com/kelseyhightower/kubernetes-the-hard-way.git"
+kthw_version: master
+kthw_directory: "{{ jumpbox_home }}/kubernetes-the-hard-way"
