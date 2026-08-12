@@ -1,0 +1,15 @@
+---
+all:
+  children:
+    jumpboxes:
+      hosts:
+        jumpbox:
+
+    control_plane:
+      hosts:
+        server:
+
+    workers:
+      hosts:
+        node-0:
+        node-1:
