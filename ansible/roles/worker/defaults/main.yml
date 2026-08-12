@@ -1,0 +1,19 @@
+---
+worker_certificates:
+  - name: ca.pem
+    mode: "0644"
+
+  - name: "{{ inventory_hostname }}.pem"
+    mode: "0600"
+
+  - name: "{{ inventory_hostname }}-key.pem"
+    mode: "0600"
+
+  - name: kube-proxy.pem
+    mode: "0600"
+
+  - name: kube-proxy-key.pem
+    mode: "0600"
+
+kubernetes_cert_source_dir: "/home/vagrant/certs"
+kubernetes_cert_dest_dir: "/etc/kubernetes/pki"

@@ -1,0 +1,19 @@
+---
+- name: Create Kubernetes PKI directory
+  ansible.builtin.file:
+    path: /etc/kubernetes/pki
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Distribute control plane certificates
+  ansible.builtin.copy:
+    src: "{{ kubernetes_cert_source_dir }}/{{ item.name }}"
+    dest: "{{ kubernetes_cert_dest_dir }}/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop: "{{ control_plane_certificates }}"
+  loop_control:
+    label: "{{ item.name }}"

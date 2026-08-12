@@ -1,0 +1,20 @@
+---
+- name: Create Kubernetes PKI directory
+  ansible.builtin.file:
+    path: "{{ kubernetes_cert_dest_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Distribute worker certificates
+  ansible.builtin.copy:
+    src: "{{ kubernetes_cert_source_dir }}/{{ item.name }}"
+    dest: "{{ kubernetes_cert_dest_dir }}/{{ item.name }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop: "{{ worker_certificates }}"
+  loop_control:
+    label: "{{ item.name }}"

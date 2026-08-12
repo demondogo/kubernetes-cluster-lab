@@ -1,0 +1,7 @@
+---
+- name: Configure Kubernetes workers
+  hosts: workers
+  become: true
+
+  roles:
+    - worker
