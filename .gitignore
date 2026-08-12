@@ -4,13 +4,32 @@
 
 .vagrant/
 
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+
+# Virtual environments
+.venv/
+venv/
+
+# Python cache / compiled files
+__pycache__/
+*.py[cod]
+
+
 # ---------------------------------------------------------------------------
 # Ansible
 # ---------------------------------------------------------------------------
 
 *.retry
+
+# Local Ansible/Vault credentials
 ansible/.vault_pass
 ansible/.vault_password
+*.vault-password
+*.vault-pass
+
 
 # ---------------------------------------------------------------------------
 # SSH Credentials
@@ -23,11 +42,12 @@ id_ed25519.pub
 id_ecdsa
 id_ecdsa.pub
 
+
 # ---------------------------------------------------------------------------
 # PKI / Certificates
 #
-# Kubernetes The Hard Way generates certificate and private-key material.
-# These files must not be committed.
+# Kubernetes The Hard Way generates certificates and private-key material.
+# Generated credentials must not be committed to the repository.
 # ---------------------------------------------------------------------------
 
 *.key
@@ -36,24 +56,30 @@ id_ecdsa.pub
 *.p12
 *.pfx
 
+
 # ---------------------------------------------------------------------------
 # Kubernetes Credentials
 # ---------------------------------------------------------------------------
 
 *.kubeconfig
 
+
 # ---------------------------------------------------------------------------
-# Ansible Vault / Local Secrets
+# Generated Lab Artifacts
+#
+# Generated PKI, kubeconfigs, temporary manifests, and other runtime
+# artifacts should be stored here rather than alongside source files.
 # ---------------------------------------------------------------------------
 
-*.vault-password
-*.vault-pass
+artifacts/
+
 
 # ---------------------------------------------------------------------------
 # OS / Editor Files
 # ---------------------------------------------------------------------------
 
 .DS_Store
+
 *.swp
 *.swo
 *~
