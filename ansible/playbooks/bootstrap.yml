@@ -1,0 +1,8 @@
+# playbooks/bootstrap.yml
+---
+- name: Bootstrap Kubernetes lab
+  hosts: all
+  become: true
+
+  roles:
+    - common

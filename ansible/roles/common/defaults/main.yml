@@ -1,0 +1,14 @@
+---
+common_packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg
+  - lsb-release
+  - net-tools
+  - vim
+  - wget
+
+kubernetes_kernel_modules:
+  - overlay
+  - br_netfilter
