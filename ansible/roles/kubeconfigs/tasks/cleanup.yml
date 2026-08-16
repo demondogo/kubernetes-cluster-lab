@@ -1,0 +1,4 @@
+- name: Remove temporary kubeconfig staging directory
+  ansible.builtin.file:
+    path: "{{ kubeconfig_staging_directory }}"
+    state: absent

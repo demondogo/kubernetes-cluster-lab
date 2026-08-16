@@ -11,10 +11,10 @@
     path: /etc/hosts
     marker: "# {mark} KUBERNETES LAB"
     block: |
-      192.168.56.10 jumpbox
-      192.168.56.20 server
-      192.168.56.50 node-0
-      192.168.56.60 node-1
+      192.168.56.10 jumpbox.kubernetes.local jumpbox
+      192.168.56.20 server.kubernetes.local server
+      192.168.56.50 node-0.kubernetes.local node-0
+      192.168.56.60 node-1.kubernetes.local node-1
 
 - name: Configure kernel modules to load at boot
   ansible.builtin.copy:

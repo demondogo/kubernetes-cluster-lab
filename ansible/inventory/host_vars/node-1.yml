@@ -2,3 +2,25 @@
 ---
 node_ip: 192.168.56.60
 pod_cidr: 10.200.1.0/24
+
+certificate_files:
+  - src: ca.crt
+    dest: ca.crt
+    mode: "0644"
+
+  - src: node-1.crt
+    dest: kubelet.crt
+    mode: "0644"
+
+  - src: node-1.key
+    dest: kubelet.key
+    mode: "0600"
+
+kubeconfig_files:
+  - src: node-1.kubeconfig
+    dest: kubelet.kubeconfig
+    mode: "0600"
+
+  - src: kube-proxy.kubeconfig
+    dest: kube-proxy.kubeconfig
+    mode: "0600"

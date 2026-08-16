@@ -1,0 +1,83 @@
+---
+- name: Stage Kubernetes certificates from jumpbox
+  hosts: jumpbox
+  gather_facts: false
+
+  vars:
+    pki_source_directory: /home/vagrant/kubernetes-pki
+    pki_staging_directory: /tmp/kubernetes-lab-pki
+
+  tasks:
+    - name: Create local PKI staging directory
+      ansible.builtin.file:
+        path: "{{ pki_staging_directory }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Find generated certificates and keys
+      ansible.builtin.find:
+        paths: "{{ pki_source_directory }}"
+        patterns:
+          - "*.crt"
+          - "*.key"
+        file_type: file
+      register: pki_files
+
+    - name: Fetch generated PKI
+      ansible.builtin.fetch:
+        src: "{{ item.path }}"
+        dest: "{{ pki_staging_directory }}/"
+        flat: true
+      loop: "{{ pki_files.files }}"
+      no_log: true
+
+- name: Distribute Kubernetes certificates
+  hosts:
+    - control_plane
+    - workers
+  become: true
+  gather_facts: false
+
+  vars:
+    pki_staging_directory: /tmp/kubernetes-lab-pki
+    kubernetes_pki_directory: /var/lib/kubernetes
+
+  tasks:
+    - name: Ensure Kubernetes PKI directory exists
+      ansible.builtin.file:
+        path: "{{ kubernetes_pki_directory }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Ensure CA private key is not included
+      ansible.builtin.assert:
+        that:
+          - certificate_files | selectattr('src', 'equalto', 'ca.key') | list | length == 0
+        fail_msg: "CA private key must never be distributed to cluster nodes."
+
+    - name: Distribute certificate material
+      ansible.builtin.copy:
+        src: "{{ pki_staging_directory }}/{{ item.src }}"
+        dest: "{{ kubernetes_pki_directory }}/{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      loop: "{{ certificate_files }}"
+      no_log: true
+
+- name: Remove staged PKI from Ansible controller
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    pki_staging_directory: /tmp/kubernetes-lab-pki
+
+  tasks:
+    - name: Remove temporary PKI staging directory
+      ansible.builtin.file:
+        path: "{{ pki_staging_directory }}"
+        state: absent

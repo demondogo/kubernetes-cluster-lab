@@ -1,0 +1,5 @@
+---
+kubeconfig_source_host: jumpbox
+kubeconfig_source_directory: /home/vagrant/kubernetes-kubeconfigs
+kubeconfig_staging_directory: /tmp/kubernetes-lab-kubeconfigs
+kubernetes_config_directory: /var/lib/kubernetes

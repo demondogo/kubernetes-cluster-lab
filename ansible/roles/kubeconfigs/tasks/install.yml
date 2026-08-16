@@ -1,0 +1,23 @@
+- name: Ensure Kubernetes configuration directory exists
+  ansible.builtin.file:
+    path: "{{ kubernetes_config_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure admin kubeconfig is not distributed
+  ansible.builtin.assert:
+    that:
+      - kubeconfig_files | selectattr('src', 'equalto', 'admin.kubeconfig') | list | length == 0
+    fail_msg: "admin.kubeconfig must not be distributed to cluster nodes."
+
+- name: Install Kubernetes kubeconfigs
+  ansible.builtin.copy:
+    src: "{{ kubeconfig_staging_directory }}/{{ item.src }}"
+    dest: "{{ kubernetes_config_directory }}/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop: "{{ kubeconfig_files }}"
+  no_log: true

@@ -1,0 +1,23 @@
+---
+- name: Create local kubeconfig staging directory
+  ansible.builtin.file:
+    path: "{{ kubeconfig_staging_directory }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  run_once: true
+
+- name: Find generated kubeconfigs
+  ansible.builtin.find:
+    paths: "{{ kubeconfig_source_directory }}"
+    patterns: "*.kubeconfig"
+    file_type: file
+  register: generated_kubeconfigs
+
+- name: Fetch generated kubeconfigs
+  ansible.builtin.fetch:
+    src: "{{ item.path }}"
+    dest: "{{ kubeconfig_staging_directory }}/"
+    flat: true
+  loop: "{{ generated_kubeconfigs.files }}"
+  no_log: true

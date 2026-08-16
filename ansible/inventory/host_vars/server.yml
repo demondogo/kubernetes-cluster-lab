@@ -1,3 +1,33 @@
 # host_vars/server.yml
 ---
 node_ip: 192.168.56.20
+
+certificate_files:
+  - src: ca.crt
+    dest: ca.crt
+    mode: "0644"
+
+  - src: kube-api-server.crt
+    dest: kube-api-server.crt
+    mode: "0644"
+
+  - src: kube-api-server.key
+    dest: kube-api-server.key
+    mode: "0600"
+
+  - src: service-accounts.crt
+    dest: service-accounts.crt
+    mode: "0644"
+
+  - src: service-accounts.key
+    dest: service-accounts.key
+    mode: "0600"
+
+kubeconfig_files:
+  - src: kube-controller-manager.kubeconfig
+    dest: kube-controller-manager.kubeconfig
+    mode: "0600"
+
+  - src: kube-scheduler.kubeconfig
+    dest: kube-scheduler.kubeconfig
+    mode: "0600"

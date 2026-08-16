@@ -1,0 +1,13 @@
+---
+- name: Validate kubeconfig action
+  ansible.builtin.assert:
+    that:
+      - kubeconfig_action is defined
+      - kubeconfig_action in ["stage", "install", "cleanup"]
+    fail_msg: >-
+      kubeconfig_action must be one of:
+      stage, install, cleanup
+
+- name: Run kubeconfig operation
+  ansible.builtin.include_tasks:
+    file: "{{ kubeconfig_action }}.yml"

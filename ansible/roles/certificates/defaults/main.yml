@@ -1,0 +1,5 @@
+---
+pki_source_host: jumpbox
+pki_source_directory: /home/vagrant/kubernetes-pki
+
+kubernetes_pki_directory: /var/lib/kubernetes
