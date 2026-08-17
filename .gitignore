@@ -69,10 +69,46 @@ id_ecdsa.pub
 
 
 # ---------------------------------------------------------------------------
-# Kubernetes Credentials
+# Kubernetes Credentials / Secrets
 # ---------------------------------------------------------------------------
 
 *.kubeconfig
+
+# Kubernetes encryption-at-rest configuration contains symmetric key material.
+encryption-config.yaml
+
+
+# ---------------------------------------------------------------------------
+# Generated Lab Artifacts
+#
+# Generated PKI, kubeconfigs, temporary manifests, and other runtime
+# artifacts should be stored here rather than alongside source files.
+# ---------------------------------------------------------------------------
+
+artifacts/
+
+# ---------------------------------------------------------------------------
+# PKI / Certificates
+#
+# Kubernetes The Hard Way generates certificates and private-key material.
+# Generated credentials must not be committed to the repository.
+# ---------------------------------------------------------------------------
+
+*.key
+*.pem
+*.csr
+*.p12
+*.pfx
+
+
+# ---------------------------------------------------------------------------
+# Kubernetes Credentials / Secrets
+# ---------------------------------------------------------------------------
+
+*.kubeconfig
+
+# Kubernetes encryption-at-rest configuration contains symmetric key material.
+encryption-config.yaml
 
 
 # ---------------------------------------------------------------------------
