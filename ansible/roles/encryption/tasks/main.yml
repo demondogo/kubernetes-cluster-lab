@@ -1,0 +1,14 @@
+---
+- name: Validate encryption action
+  ansible.builtin.assert:
+    that:
+      - encryption_action is defined
+      - encryption_action in ["stage", "install", "cleanup"]
+    fail_msg: >-
+      encryption_action must be one of:
+      stage, install, cleanup
+
+- name: Run encryption configuration operation
+  ansible.builtin.include_tasks:
+    file: "{{ encryption_action }}.yml"
+  

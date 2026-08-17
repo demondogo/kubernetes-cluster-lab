@@ -1,0 +1,32 @@
+---
+- name: Ensure Kubernetes configuration directory exists
+  ansible.builtin.file:
+    path: "{{ kubernetes_config_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Verify staged encryption configuration exists
+  ansible.builtin.stat:
+    path: "{{ encryption_staging_directory }}/{{ encryption_config_file }}"
+  delegate_to: localhost
+  become: false
+  register: staged_encryption_config
+
+- name: Fail if staged encryption configuration is missing
+  ansible.builtin.assert:
+    that:
+      - staged_encryption_config.stat.exists
+    fail_msg: >-
+      Staged encryption configuration was not found on the
+      Ansible controller.
+
+- name: Install encryption configuration
+  ansible.builtin.copy:
+    src: "{{ encryption_staging_directory }}/{{ encryption_config_file }}"
+    dest: "{{ kubernetes_config_directory }}/{{ encryption_config_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true

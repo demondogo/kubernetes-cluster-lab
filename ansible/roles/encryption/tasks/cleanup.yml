@@ -1,0 +1,6 @@
+---
+- name: Remove local encryption staging directory
+  ansible.builtin.file:
+    path: "{{ encryption_staging_directory }}"
+    state: absent
+    

@@ -1,0 +1,29 @@
+---
+- name: Create local encryption staging directory
+  ansible.builtin.file:
+    path: "{{ encryption_staging_directory }}"
+    state: directory
+    mode: "0700"
+  delegate_to: localhost
+  run_once: true
+
+- name: Verify encryption configuration exists on jumpbox
+  ansible.builtin.stat:
+    path: "{{ encryption_source_directory }}/{{ encryption_config_file }}"
+  register: encryption_config
+
+- name: Fail if encryption configuration is missing
+  ansible.builtin.assert:
+    that:
+      - encryption_config.stat.exists
+      - encryption_config.stat.isreg
+    fail_msg: >-
+      Encryption configuration was not found at
+      {{ encryption_source_directory }}/{{ encryption_config_file }}
+
+- name: Fetch encryption configuration
+  ansible.builtin.fetch:
+    src: "{{ encryption_source_directory }}/{{ encryption_config_file }}"
+    dest: "{{ encryption_staging_directory }}/{{ encryption_config_file }}"
+    flat: true
+  no_log: true

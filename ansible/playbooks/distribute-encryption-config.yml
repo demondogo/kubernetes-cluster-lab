@@ -1,0 +1,25 @@
+---
+- name: Stage Kubernetes encryption configuration
+  hosts: jumpbox
+  gather_facts: false
+
+  roles:
+    - role: encryption
+      encryption_action: stage
+
+- name: Install Kubernetes encryption configuration
+  hosts: control_plane
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: encryption
+      encryption_action: install
+
+- name: Clean encryption configuration staging area
+  hosts: localhost
+  gather_facts: false
+
+  roles:
+    - role: encryption
+      encryption_action: cleanup

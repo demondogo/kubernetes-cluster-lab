@@ -1,0 +1,5 @@
+encryption_source_directory: /home/vagrant/kubernetes-encryption
+encryption_config_file: encryption-config.yaml
+
+encryption_staging_directory: /tmp/kubernetes-lab-encryption
+kubernetes_config_directory: /var/lib/kubernetes
