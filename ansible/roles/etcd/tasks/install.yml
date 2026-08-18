@@ -1,0 +1,43 @@
+---
+- name: Ensure etcd data directory exists
+  ansible.builtin.file:
+    path: "{{ etcd_data_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Install etcd server binary
+  ansible.builtin.copy:
+    src: "{{ etcd_staging_directory }}/etcd"
+    dest: "{{ etcd_binary_directory }}/etcd"
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart etcd
+
+- name: Install etcdctl binary
+  ansible.builtin.copy:
+    src: "{{ etcd_staging_directory }}/etcdctl"
+    dest: "{{ etcd_binary_directory }}/etcdctl"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install etcd systemd unit
+  ansible.builtin.template:
+    src: etcd.service.j2
+    dest: /etc/systemd/system/etcd.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart etcd
+
+- name: Enable and start etcd
+  ansible.builtin.systemd_service:
+    name: etcd
+    enabled: true
+    state: started
+    daemon_reload: true

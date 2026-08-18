@@ -1,0 +1,5 @@
+---
+- name: Remove local etcd staging directory
+  ansible.builtin.file:
+    path: "{{ etcd_staging_directory }}"
+    state: absent

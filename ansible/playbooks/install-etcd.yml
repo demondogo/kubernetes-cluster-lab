@@ -1,0 +1,25 @@
+---
+- name: Stage etcd binaries
+  hosts: jumpbox
+  gather_facts: false
+
+  roles:
+    - role: etcd
+      etcd_action: stage
+
+- name: Install and configure etcd
+  hosts: control_plane
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: etcd
+      etcd_action: install
+
+- name: Clean etcd staging area
+  hosts: localhost
+  gather_facts: false
+
+  roles:
+    - role: etcd
+      etcd_action: cleanup

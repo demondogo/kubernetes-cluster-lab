@@ -1,0 +1,13 @@
+---
+etcd_source_directory: /home/vagrant/kubernetes-the-hard-way/downloads
+etcd_staging_directory: /tmp/kubernetes-lab-etcd
+
+etcd_binary_directory: /usr/local/bin
+etcd_data_directory: /var/lib/etcd
+
+etcd_name: controller
+
+etcd_client_url: http://127.0.0.1:2379
+etcd_peer_url: http://127.0.0.1:2380
+
+etcd_initial_cluster_token: etcd-cluster-0

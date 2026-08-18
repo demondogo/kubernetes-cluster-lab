@@ -1,0 +1,40 @@
+---
+- name: Create local etcd staging directory
+  ansible.builtin.file:
+    path: "{{ etcd_staging_directory }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  run_once: true
+
+- name: Verify etcd server binary exists on jumpbox
+  ansible.builtin.stat:
+    path: "{{ etcd_source_directory }}/controller/etcd"
+  register: etcd_server_binary
+
+- name: Verify etcdctl binary exists on jumpbox
+  ansible.builtin.stat:
+    path: "{{ etcd_source_directory }}/client/etcdctl"
+  register: etcdctl_binary
+
+- name: Validate etcd binaries
+  ansible.builtin.assert:
+    that:
+      - etcd_server_binary.stat.exists
+      - etcd_server_binary.stat.isreg
+      - etcdctl_binary.stat.exists
+      - etcdctl_binary.stat.isreg
+    fail_msg: >-
+      Required etcd binaries were not found on the jumpbox.
+
+- name: Fetch etcd server binary
+  ansible.builtin.fetch:
+    src: "{{ etcd_source_directory }}/controller/etcd"
+    dest: "{{ etcd_staging_directory }}/etcd"
+    flat: true
+
+- name: Fetch etcdctl binary
+  ansible.builtin.fetch:
+    src: "{{ etcd_source_directory }}/client/etcdctl"
+    dest: "{{ etcd_staging_directory }}/etcdctl"
+    flat: true

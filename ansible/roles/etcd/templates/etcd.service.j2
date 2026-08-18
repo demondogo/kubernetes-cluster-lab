@@ -1,0 +1,21 @@
+[Unit]
+Description=etcd
+Documentation=https://github.com/etcd-io/etcd
+
+[Service]
+Type=notify
+ExecStart={{ etcd_binary_directory }}/etcd \
+  --name {{ etcd_name }} \
+  --initial-advertise-peer-urls {{ etcd_peer_url }} \
+  --listen-peer-urls {{ etcd_peer_url }} \
+  --listen-client-urls {{ etcd_client_url }} \
+  --advertise-client-urls {{ etcd_client_url }} \
+  --initial-cluster-token {{ etcd_initial_cluster_token }} \
+  --initial-cluster {{ etcd_name }}={{ etcd_peer_url }} \
+  --initial-cluster-state new \
+  --data-dir={{ etcd_data_directory }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

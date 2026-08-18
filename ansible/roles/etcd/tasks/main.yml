@@ -1,0 +1,13 @@
+---
+- name: Validate etcd action
+  ansible.builtin.assert:
+    that:
+      - etcd_action is defined
+      - etcd_action in ["stage", "install", "cleanup"]
+    fail_msg: >-
+      etcd_action must be one of:
+      stage, install, cleanup
+
+- name: Run etcd operation
+  ansible.builtin.include_tasks:
+    file: "{{ etcd_action }}.yml"
