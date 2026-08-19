@@ -1,0 +1,5 @@
+---
+- name: Remove local control plane staging directory
+  ansible.builtin.file:
+    path: "{{ control_plane_staging_directory }}"
+    state: absent

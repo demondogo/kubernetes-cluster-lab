@@ -1,0 +1,35 @@
+[Unit]
+Description=Kubernetes API Server
+Documentation=https://github.com/kubernetes/kubernetes
+
+[Service]
+ExecStart={{ kubernetes_binary_directory }}/kube-apiserver \
+  --advertise-address={{ node_ip }} \
+  --allow-privileged=true \
+  --audit-log-maxage=30 \
+  --audit-log-maxbackup=3 \
+  --audit-log-maxsize=100 \
+  --audit-log-path=/var/log/audit.log \
+  --authorization-mode=Node,RBAC \
+  --bind-address={{ kubernetes_api_bind_address }} \
+  --client-ca-file={{ kubernetes_config_directory }}/ca.crt \
+  --enable-admission-plugins=NamespaceLifecycle,NodeRestriction,LimitRanger,ServiceAccount,DefaultStorageClass,ResourceQuota \
+  --etcd-servers={{ kubernetes_etcd_servers }} \
+  --event-ttl=1h \
+  --encryption-provider-config={{ kubernetes_config_directory }}/encryption-config.yaml \
+  --kubelet-certificate-authority={{ kubernetes_config_directory }}/ca.crt \
+  --kubelet-client-certificate={{ kubernetes_config_directory }}/kube-api-server.crt \
+  --kubelet-client-key={{ kubernetes_config_directory }}/kube-api-server.key \
+  --runtime-config='api/all=true' \
+  --service-account-key-file={{ kubernetes_config_directory }}/service-accounts.crt \
+  --service-account-signing-key-file={{ kubernetes_config_directory }}/service-accounts.key \
+  --service-account-issuer=https://{{ kubernetes_api_hostname }}:{{ kubernetes_api_port }} \
+  --service-node-port-range={{ kubernetes_node_port_range }} \
+  --tls-cert-file={{ kubernetes_config_directory }}/kube-api-server.crt \
+  --tls-private-key-file={{ kubernetes_config_directory }}/kube-api-server.key \
+  --v={{ kubernetes_log_level }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

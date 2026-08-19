@@ -1,0 +1,75 @@
+---
+- name: Ensure Kubernetes configuration directory exists
+  ansible.builtin.file:
+    path: "{{ kubernetes_system_config_directory }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install control plane binaries
+  ansible.builtin.copy:
+    src: "{{ control_plane_staging_directory }}/{{ item }}"
+    dest: "{{ kubernetes_binary_directory }}/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - kube-apiserver
+    - kube-controller-manager
+    - kube-scheduler
+  loop_control:
+    label: "{{ item }}"
+
+- name: Install kube-apiserver systemd unit
+  ansible.builtin.template:
+    src: kube-apiserver.service.j2
+    dest: /etc/systemd/system/kube-apiserver.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart kube-apiserver
+
+- name: Install kube-controller-manager systemd unit
+  ansible.builtin.template:
+    src: kube-controller-manager.service.j2
+    dest: /etc/systemd/system/kube-controller-manager.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart kube-controller-manager
+
+- name: Install kube-scheduler systemd unit
+  ansible.builtin.template:
+    src: kube-scheduler.service.j2
+    dest: /etc/systemd/system/kube-scheduler.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart kube-scheduler
+
+- name: Install kube-scheduler configuration
+  ansible.builtin.template:
+    src: kube-scheduler.yaml.j2
+    dest: "{{ kubernetes_system_config_directory }}/kube-scheduler.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kube-scheduler
+
+- name: Enable and start Kubernetes control plane services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - kube-apiserver
+    - kube-controller-manager
+    - kube-scheduler

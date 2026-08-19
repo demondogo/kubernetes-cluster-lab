@@ -1,0 +1,13 @@
+---
+- name: Validate control plane action
+  ansible.builtin.assert:
+    that:
+      - control_plane_action is defined
+      - control_plane_action in ["stage", "install", "cleanup"]
+    fail_msg: >-
+      control_plane_action must be one of:
+      stage, install, cleanup
+
+- name: Run control plane operation
+  ansible.builtin.include_tasks:
+    file: "{{ control_plane_action }}.yml"

@@ -1,3 +1,0 @@
----
-- name: Configure control plane certificates
-  ansible.builtin.import_tasks: certificates.yml

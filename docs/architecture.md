@@ -573,9 +573,10 @@ The objective is to understand the system first and automate the repetitive part
 
 ---
 
+
 ## Kubernetes Bootstrap Workflow
 
-The current cluster bootstrap sequence is:
+The cluster is built progressively, with infrastructure provisioning, security configuration, and Kubernetes component bootstrap handled as separate phases.
 
 ```text
 Vagrant infrastructure
@@ -602,16 +603,19 @@ Manual kubeconfig generation
 Ansible kubeconfig distribution
         |
         v
-Encryption at rest
+Manual encryption-at-rest configuration
         |
         v
-etcd
+Ansible encryption config distribution
         |
         v
-Control plane
+Ansible etcd bootstrap
         |
         v
-Workers
+Ansible control-plane bootstrap
+        |
+        v
+Worker bootstrap
         |
         v
 Pod networking
@@ -620,6 +624,100 @@ Pod networking
 CoreDNS
 ```
 
-At the current stage, infrastructure provisioning, operating-system bootstrap, PKI, certificate distribution, kubeconfig generation, and kubeconfig distribution are complete.
+The workflow intentionally separates operations that are performed manually for learning from repetitive configuration and distribution tasks that are automated with Ansible.
 
-Encryption at rest is the next phase before bootstrapping etcd and the Kubernetes control plane.
+## Project Progress
+
+This section is the canonical source for the current implementation status of the lab. Individual phase documents describe how each component is designed, implemented, rebuilt, and verified.
+
+| Phase | Implementation | Status |
+|---|---|---|
+| Infrastructure provisioning | Vagrant | Complete |
+| OS bootstrap | Ansible | Complete |
+| Architecture validation | Manual | Complete |
+| Kubernetes binary preparation | Manual | Complete |
+| PKI generation | Manual | Complete |
+| Certificate distribution | Ansible | Complete |
+| Kubeconfig generation | Manual | Complete |
+| Kubeconfig distribution | Ansible | Complete |
+| Encryption-at-rest configuration | Manual | Complete |
+| Encryption config distribution | Ansible | Complete |
+| etcd bootstrap | Ansible | Complete |
+| Control-plane bootstrap | Ansible | Complete |
+| Worker bootstrap | Ansible | In Progress |
+| Pod networking | TBD | Pending |
+| CoreDNS | TBD | Pending |
+
+### Current Phase
+
+The Kubernetes control plane is operational.
+
+The following control-plane components are running on `server`:
+
+```text
+server
+├── etcd
+├── kube-apiserver
+├── kube-controller-manager
+└── kube-scheduler
+```
+
+The control-plane stack has been validated beyond basic service availability:
+
+```text
+Control Plane
+     |
+     +-- etcd healthy                         ✓
+     |
+     +-- kube-apiserver active                ✓
+     |
+     +-- kube-controller-manager active       ✓
+     |
+     +-- kube-scheduler active                ✓
+     |
+     +-- API readiness checks                 ✓
+     |
+     +-- API reachable over 192.168.56.20     ✓
+     |
+     +-- advertised endpoint correct          ✓
+     |
+     +-- admin authentication                 ✓
+     |
+     +-- encryption at rest                   ✓
+```
+
+The API server advertises the cluster-facing address:
+
+```text
+192.168.56.20:6443
+```
+
+rather than the VirtualBox NAT interface.
+
+Encryption at rest has also been validated end-to-end by creating a Kubernetes Secret through the API server and inspecting its raw representation in etcd.
+
+The plaintext Secret value was absent, while the stored value contained the expected encryption-provider marker:
+
+```text
+k8s:enc:aescbc:v1:key1
+```
+
+The next implementation phase is bootstrapping the worker nodes:
+
+```text
+node-0
+├── containerd
+├── runc
+├── CNI plugins
+├── kubelet
+└── kube-proxy
+
+node-1
+├── containerd
+├── runc
+├── CNI plugins
+├── kubelet
+└── kube-proxy
+```
+
+Once the workers are registered and operational, the remaining phases will establish pod networking and cluster DNS.

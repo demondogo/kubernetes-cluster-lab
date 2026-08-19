@@ -1,0 +1,25 @@
+---
+- name: Stage Kubernetes control plane binaries
+  hosts: jumpbox
+  gather_facts: false
+
+  roles:
+    - role: control_plane
+      control_plane_action: stage
+
+- name: Install Kubernetes control plane
+  hosts: control_plane
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: control_plane
+      control_plane_action: install
+
+- name: Clean control plane staging area
+  hosts: localhost
+  gather_facts: false
+
+  roles:
+    - role: control_plane
+      control_plane_action: cleanup

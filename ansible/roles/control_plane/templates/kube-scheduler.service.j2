@@ -1,0 +1,13 @@
+[Unit]
+Description=Kubernetes Scheduler
+Documentation=https://github.com/kubernetes/kubernetes
+
+[Service]
+ExecStart={{ kubernetes_binary_directory }}/kube-scheduler \
+  --config={{ kubernetes_system_config_directory }}/kube-scheduler.yaml \
+  --v={{ kubernetes_log_level }}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

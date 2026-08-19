@@ -1,0 +1,50 @@
+---
+- name: Recreate local control plane staging directory
+  ansible.builtin.file:
+    path: "{{ control_plane_staging_directory }}"
+    state: absent
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Create local control plane staging directory
+  ansible.builtin.file:
+    path: "{{ control_plane_staging_directory }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Verify control plane binaries exist on jumpbox
+  ansible.builtin.stat:
+    path: "{{ control_plane_source_directory }}/{{ item }}"
+  loop:
+    - kube-apiserver
+    - kube-controller-manager
+    - kube-scheduler
+  register: control_plane_binaries
+
+- name: Fail if a control plane binary is missing
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: >-
+      Required control plane binary {{ item.item }}
+      was not found on the jumpbox.
+  loop: "{{ control_plane_binaries.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Fetch control plane binaries
+  ansible.builtin.fetch:
+    src: "{{ control_plane_source_directory }}/{{ item }}"
+    dest: "{{ control_plane_staging_directory }}/{{ item }}"
+    flat: true
+  loop:
+    - kube-apiserver
+    - kube-controller-manager
+    - kube-scheduler
+  loop_control:
+    label: "{{ item }}"
