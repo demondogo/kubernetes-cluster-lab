@@ -29,6 +29,10 @@ Validate
 Distribute with Ansible
 ```
 
+> **Rebuild note:** Kubeconfigs are generated runtime credentials and are intentionally excluded from Git. After recreating the lab VMs, regenerate the PKI first, then follow the manual generation procedure below before running `playbooks/distribute-kubeconfigs.yml`.
+
+---
+
 ## Workspace
 
 Kubeconfigs are generated on the jumpbox under:
@@ -43,13 +47,15 @@ PKI material used during generation resides under:
 /home/vagrant/kubernetes-pki
 ```
 
-Generated kubeconfigs contain embedded certificate material and must not be committed to Git.
+Generated kubeconfigs contain embedded certificate and private-key material and must not be committed to Git.
 
 The repository `.gitignore` excludes:
 
 ```text
 *.kubeconfig
 ```
+
+---
 
 ## Kubeconfig Structure
 
@@ -113,7 +119,7 @@ users:
 
 ### Context
 
-A context associates a cluster with an identity.
+A context associates a cluster with an identity:
 
 ```yaml
 contexts:
@@ -132,6 +138,8 @@ Who do I trust?
         +
 Who am I?
 ```
+
+---
 
 ## API Server Endpoint
 
@@ -161,7 +169,7 @@ The API server certificate includes the hostname in its Subject Alternative Name
 DNS:server.kubernetes.local
 ```
 
-The hostname was verified against the certificate using:
+Verify the hostname against the certificate:
 
 ```bash
 openssl verify \
@@ -170,7 +178,13 @@ openssl verify \
   ~/kubernetes-pki/kube-api-server.crt
 ```
 
-This ensures that:
+Expected:
+
+```text
+/home/vagrant/kubernetes-pki/kube-api-server.crt: OK
+```
+
+This ensures:
 
 ```text
 DNS resolution
@@ -181,6 +195,8 @@ kubeconfig endpoint
 ```
 
 all agree on the same control-plane identity.
+
+---
 
 ## Local Control Plane Endpoint
 
@@ -207,9 +223,354 @@ server:
   kube-scheduler --------------> 127.0.0.1:6443
 ```
 
+---
+
+# Manual Kubeconfig Generation
+
+## Prerequisites
+
+The Kubernetes PKI must already exist.
+
+Required files include:
+
+```text
+/home/vagrant/kubernetes-pki/
+├── ca.crt
+├── admin.crt
+├── admin.key
+├── node-0.crt
+├── node-0.key
+├── node-1.crt
+├── node-1.key
+├── kube-proxy.crt
+├── kube-proxy.key
+├── kube-controller-manager.crt
+├── kube-controller-manager.key
+├── kube-scheduler.crt
+└── kube-scheduler.key
+```
+
+`kubectl` must also be available on the jumpbox.
+
+If it has already been organized under the Kubernetes The Hard Way downloads directory:
+
+```bash
+sudo install -m 0755 \
+  ~/kubernetes-the-hard-way/downloads/client/kubectl \
+  /usr/local/bin/kubectl
+```
+
+Verify:
+
+```bash
+kubectl version --client
+```
+
+---
+
+## Create the Workspace
+
+```bash
+mkdir -p ~/kubernetes-kubeconfigs
+cd ~/kubernetes-kubeconfigs
+```
+
+Define shared configuration:
+
+```bash
+SERVER=server.kubernetes.local
+CLUSTER=kubernetes-the-hard-way
+PKI=../kubernetes-pki
+```
+
+Verify name resolution:
+
+```bash
+getent hosts "${SERVER}"
+```
+
+Expected:
+
+```text
+192.168.56.20 server.kubernetes.local server
+```
+
+Verify the API server certificate:
+
+```bash
+openssl verify \
+  -CAfile "${PKI}/ca.crt" \
+  -verify_hostname "${SERVER}" \
+  "${PKI}/kube-api-server.crt"
+```
+
+Expected:
+
+```text
+../kubernetes-pki/kube-api-server.crt: OK
+```
+
+---
+
+## Generate `node-0.kubeconfig` Manually
+
+`node-0` is generated step-by-step to demonstrate how a kubeconfig is assembled.
+
+### Configure the Cluster
+
+```bash
+kubectl config set-cluster "${CLUSTER}" \
+  --certificate-authority="${PKI}/ca.crt" \
+  --embed-certs=true \
+  --server="https://${SERVER}:6443" \
+  --kubeconfig=node-0.kubeconfig
+```
+
+This establishes:
+
+```text
+cluster name
+     +
+API server endpoint
+     +
+trusted Certificate Authority
+```
+
+### Configure the Node Identity
+
+```bash
+kubectl config set-credentials system:node:node-0 \
+  --client-certificate="${PKI}/node-0.crt" \
+  --client-key="${PKI}/node-0.key" \
+  --embed-certs=true \
+  --kubeconfig=node-0.kubeconfig
+```
+
+The kubelet authenticates as:
+
+```text
+system:node:node-0
+```
+
+### Configure the Context
+
+```bash
+kubectl config set-context default \
+  --cluster="${CLUSTER}" \
+  --user=system:node:node-0 \
+  --kubeconfig=node-0.kubeconfig
+```
+
+Activate it:
+
+```bash
+kubectl config use-context default \
+  --kubeconfig=node-0.kubeconfig
+```
+
+The relationship is:
+
+```text
+kubernetes-the-hard-way
+          +
+system:node:node-0
+          |
+          v
+        default
+          |
+          v
+ node-0.kubeconfig
+```
+
+---
+
+## Generate the Remaining Remote Kubeconfigs
+
+After constructing `node-0.kubeconfig` manually, a temporary Bash helper eliminates repetitive commands for the remaining remote clients.
+
+The function exists only in the current shell session and is not permanent project automation.
+
+```bash
+generate_kubeconfig() {
+    if [[ $# -ne 4 ]]; then
+        echo "Usage: generate_kubeconfig <name> <user> <cert> <key>" >&2
+        return 1
+    fi
+
+    local name="$1"
+    local user="$2"
+    local cert="$3"
+    local key="$4"
+
+    kubectl config set-cluster "${CLUSTER}" \
+      --certificate-authority="${PKI}/ca.crt" \
+      --embed-certs=true \
+      --server="https://${SERVER}:6443" \
+      --kubeconfig="${name}.kubeconfig"
+
+    kubectl config set-credentials "${user}" \
+      --client-certificate="${PKI}/${cert}" \
+      --client-key="${PKI}/${key}" \
+      --embed-certs=true \
+      --kubeconfig="${name}.kubeconfig"
+
+    kubectl config set-context default \
+      --cluster="${CLUSTER}" \
+      --user="${user}" \
+      --kubeconfig="${name}.kubeconfig"
+
+    kubectl config use-context default \
+      --kubeconfig="${name}.kubeconfig"
+}
+```
+
+The positional arguments are:
+
+```text
+$1 -> kubeconfig name
+$2 -> Kubernetes identity
+$3 -> client certificate
+$4 -> client private key
+```
+
+Generate `node-1`:
+
+```bash
+generate_kubeconfig \
+  node-1 \
+  system:node:node-1 \
+  node-1.crt \
+  node-1.key
+```
+
+Generate `kube-proxy`:
+
+```bash
+generate_kubeconfig \
+  kube-proxy \
+  system:kube-proxy \
+  kube-proxy.crt \
+  kube-proxy.key
+```
+
+Generate the administrative kubeconfig:
+
+```bash
+generate_kubeconfig \
+  admin \
+  admin \
+  admin.crt \
+  admin.key
+```
+
+---
+
+## Generate the Controller Manager Kubeconfig
+
+The controller manager runs locally on the control-plane server and connects to:
+
+```text
+https://127.0.0.1:6443
+```
+
+Configure the cluster:
+
+```bash
+kubectl config set-cluster "${CLUSTER}" \
+  --certificate-authority="${PKI}/ca.crt" \
+  --embed-certs=true \
+  --server=https://127.0.0.1:6443 \
+  --kubeconfig=kube-controller-manager.kubeconfig
+```
+
+Configure its identity:
+
+```bash
+kubectl config set-credentials system:kube-controller-manager \
+  --client-certificate="${PKI}/kube-controller-manager.crt" \
+  --client-key="${PKI}/kube-controller-manager.key" \
+  --embed-certs=true \
+  --kubeconfig=kube-controller-manager.kubeconfig
+```
+
+Create the context:
+
+```bash
+kubectl config set-context default \
+  --cluster="${CLUSTER}" \
+  --user=system:kube-controller-manager \
+  --kubeconfig=kube-controller-manager.kubeconfig
+```
+
+Activate it:
+
+```bash
+kubectl config use-context default \
+  --kubeconfig=kube-controller-manager.kubeconfig
+```
+
+---
+
+## Generate the Scheduler Kubeconfig
+
+The scheduler also runs locally on the control-plane server.
+
+Configure the cluster:
+
+```bash
+kubectl config set-cluster "${CLUSTER}" \
+  --certificate-authority="${PKI}/ca.crt" \
+  --embed-certs=true \
+  --server=https://127.0.0.1:6443 \
+  --kubeconfig=kube-scheduler.kubeconfig
+```
+
+Configure its identity:
+
+```bash
+kubectl config set-credentials system:kube-scheduler \
+  --client-certificate="${PKI}/kube-scheduler.crt" \
+  --client-key="${PKI}/kube-scheduler.key" \
+  --embed-certs=true \
+  --kubeconfig=kube-scheduler.kubeconfig
+```
+
+Create the context:
+
+```bash
+kubectl config set-context default \
+  --cluster="${CLUSTER}" \
+  --user=system:kube-scheduler \
+  --kubeconfig=kube-scheduler.kubeconfig
+```
+
+Activate it:
+
+```bash
+kubectl config use-context default \
+  --kubeconfig=kube-scheduler.kubeconfig
+```
+
+---
+
 ## Generated Kubeconfigs
 
-The lab generates six kubeconfigs.
+Six kubeconfigs should now exist:
+
+```bash
+ls -lh *.kubeconfig
+```
+
+Expected:
+
+```text
+admin.kubeconfig
+kube-controller-manager.kubeconfig
+kube-proxy.kubeconfig
+kube-scheduler.kubeconfig
+node-0.kubeconfig
+node-1.kubeconfig
+```
 
 | Kubeconfig | Kubernetes Identity | API Endpoint |
 |---|---|---|
@@ -220,15 +581,62 @@ The lab generates six kubeconfigs.
 | `kube-controller-manager.kubeconfig` | `system:kube-controller-manager` | `127.0.0.1:6443` |
 | `kube-scheduler.kubeconfig` | `system:kube-scheduler` | `127.0.0.1:6443` |
 
-## Embedded Credentials
+---
 
-Kubeconfigs are generated using:
+## Verify Generated Kubeconfigs
+
+Audit the endpoint and identity without displaying private-key material:
+
+```bash
+for config in *.kubeconfig; do
+  echo "=== ${config} ==="
+
+  kubectl config view \
+    --kubeconfig="${config}" \
+    --minify \
+    -o jsonpath='server={.clusters[0].cluster.server} user={.contexts[0].context.user}{"\n"}'
+done
+```
+
+Expected:
+
+```text
+admin.kubeconfig
+  server=https://server.kubernetes.local:6443
+  user=admin
+
+node-0.kubeconfig
+  server=https://server.kubernetes.local:6443
+  user=system:node:node-0
+
+node-1.kubeconfig
+  server=https://server.kubernetes.local:6443
+  user=system:node:node-1
+
+kube-proxy.kubeconfig
+  server=https://server.kubernetes.local:6443
+  user=system:kube-proxy
+
+kube-controller-manager.kubeconfig
+  server=https://127.0.0.1:6443
+  user=system:kube-controller-manager
+
+kube-scheduler.kubeconfig
+  server=https://127.0.0.1:6443
+  user=system:kube-scheduler
+```
+
+---
+
+## Verify Embedded Credentials
+
+Kubeconfigs are generated with:
 
 ```text
 --embed-certs=true
 ```
 
-This embeds the required credential material directly into each file:
+This embeds:
 
 ```text
 certificate-authority-data
@@ -236,15 +644,47 @@ client-certificate-data
 client-key-data
 ```
 
-As a result, a distributed kubeconfig does not depend on paths back to the original PKI workspace.
+Verify the fields exist without printing their values:
 
-This also means kubeconfigs containing client private keys must be treated as sensitive credentials.
+```bash
+for config in *.kubeconfig; do
+  echo "=== ${config} ==="
 
-## Distribution
+  for field in \
+    certificate-authority-data \
+    client-certificate-data \
+    client-key-data
+  do
+    if grep -q "${field}:" "${config}"; then
+      echo "  ${field}: OK"
+    else
+      echo "  ${field}: MISSING"
+    fi
+  done
+done
+```
 
-Kubeconfig generation is performed manually.
+Each kubeconfig should report:
 
-Ansible handles distribution.
+```text
+certificate-authority-data: OK
+client-certificate-data: OK
+client-key-data: OK
+```
+
+Because client private keys are embedded, kubeconfigs must be treated as sensitive credentials.
+
+---
+
+# Distribution
+
+After generation and validation, Ansible handles distribution.
+
+Run from the `ansible/` directory:
+
+```bash
+ansible-playbook playbooks/distribute-kubeconfigs.yml
+```
 
 The workflow is:
 
@@ -266,6 +706,8 @@ temporary staging removed
 
 The Ansible controller does not retain the staged credentials after distribution.
 
+---
+
 ## Control Plane Distribution
 
 The control-plane server receives:
@@ -284,6 +726,8 @@ group: root
 mode: 0600
 ```
 
+---
+
 ## Worker Distribution
 
 `node-0` receives:
@@ -294,13 +738,13 @@ mode: 0600
 └── kube-proxy.kubeconfig
 ```
 
-The source mapping is:
+with:
 
 ```text
 node-0.kubeconfig -> kubelet.kubeconfig
 ```
 
-`node-1` receives the same destination filenames:
+`node-1` receives:
 
 ```text
 /var/lib/kubernetes/
@@ -314,17 +758,15 @@ with:
 node-1.kubeconfig -> kubelet.kubeconfig
 ```
 
-This allows both workers to use the conventional local filename while retaining distinct Kubernetes node identities.
+This allows both workers to use conventional local filenames while retaining distinct Kubernetes node identities.
+
+---
 
 ## Administrative Credentials
 
 `admin.kubeconfig` is intentionally not distributed to the control plane or workers.
 
-It remains an administrative credential.
-
-The Ansible distribution workflow explicitly verifies that it is not included in a node's distribution configuration.
-
-The intended boundary is:
+It remains an administrative credential on the jumpbox.
 
 ```text
 jumpbox
@@ -343,6 +785,10 @@ node-1
 └── kube-proxy.kubeconfig
 ```
 
+The Ansible distribution workflow explicitly prevents the administrative kubeconfig from being installed on cluster nodes.
+
+---
+
 ## Ansible Role Design
 
 Kubeconfig distribution uses a dedicated role:
@@ -358,7 +804,7 @@ roles/kubeconfigs/
     └── cleanup.yml
 ```
 
-The role implements operations while the playbook controls orchestration.
+The role implements operations while the playbook controls orchestration:
 
 ```text
 playbooks/distribute-kubeconfigs.yml
@@ -386,20 +832,18 @@ Role
     "How?"
 ```
 
+---
+
 ## Ephemeral Staging and Idempotency
 
-The distribution workflow uses temporary controller-side staging.
+Each distribution execution:
 
-Each execution:
-
-1. Creates the staging directory.
+1. Creates a temporary controller-side staging directory.
 2. Fetches kubeconfigs from the jumpbox.
 3. Installs the required files on cluster nodes.
 4. Deletes the staging directory.
 
-Because the staging directory is deliberately removed after every execution, the staging and cleanup phases report changes on subsequent runs.
-
-This is intentional.
+The staging and cleanup phases intentionally report changes on subsequent runs.
 
 Persistent cluster configuration remains idempotent:
 
@@ -409,7 +853,7 @@ node-0   install changed=0
 node-1   install changed=0
 ```
 
-while temporary credential transport changes during each execution:
+while temporary transport changes:
 
 ```text
 create staging   changed
@@ -417,48 +861,86 @@ fetch            changed
 cleanup          changed
 ```
 
-The security benefit of removing sensitive staged credentials is preferred over retaining temporary files solely to produce `changed=0` for the entire workflow.
+Removing sensitive staged credentials is preferred over retaining them solely to make the complete playbook report `changed=0`.
 
-## Verification
+---
 
-Control-plane kubeconfigs can be verified with:
+## Verification After Distribution
+
+Verify the control-plane kubeconfigs:
 
 ```bash
 ansible server -b -m shell -a \
   'ls -l /var/lib/kubernetes/*.kubeconfig'
 ```
 
-Workers can be verified with:
+Verify worker kubeconfigs:
 
 ```bash
 ansible workers -b -m shell -a \
   'ls -l /var/lib/kubernetes/*.kubeconfig'
 ```
 
-The administrative credential should not exist on cluster nodes:
+Verify the administrative credential was not distributed:
 
 ```bash
 ansible 'control_plane:workers' -b -m shell -a \
   'test ! -e /var/lib/kubernetes/admin.kubeconfig && echo "admin kubeconfig absent"'
 ```
 
-## Current State
-
-At completion of this phase:
+All cluster nodes should report:
 
 ```text
-Infrastructure provisioning       Vagrant       COMPLETE
-OS bootstrap                      Ansible       COMPLETE
-PKI generation                    Manual        COMPLETE
-Certificate distribution          Ansible       COMPLETE
-Kubeconfig generation             Manual        COMPLETE
-Kubeconfig distribution           Ansible       COMPLETE
-Encryption at rest                              NEXT
-etcd                                            PENDING
-Control plane                                   PENDING
-Workers                                         PENDING
-Pod networking                                  PENDING
-CoreDNS                                         PENDING
+admin kubeconfig absent
 ```
 
-The next phase is configuring Kubernetes encryption at rest before bootstrapping etcd and the control plane.
+---
+
+## Rebuild Procedure
+
+If the virtual machines are destroyed, kubeconfigs must be regenerated because they are runtime credentials and are intentionally excluded from Git.
+
+The recovery sequence is:
+
+```text
+Recreate VMs
+     |
+     v
+Run Ansible bootstrap
+     |
+     v
+Regenerate PKI
+     |
+     v
+Distribute certificates
+     |
+     v
+Regenerate kubeconfigs
+     |
+     v
+Validate kubeconfigs
+     |
+     v
+Distribute kubeconfigs
+```
+
+After rebuilding PKI according to `pki.md`, follow the manual generation procedure in this document.
+
+Then, from the Ansible controller:
+
+```bash
+ansible-playbook playbooks/distribute-certificates.yml
+ansible-playbook playbooks/distribute-kubeconfigs.yml
+```
+
+The rebuild intentionally generates new credentials rather than depending on credentials stored only inside previous virtual machines.
+
+---
+
+## Next Phase
+
+With kubeconfigs generated, validated, and distributed, Kubernetes components have the client identities and API endpoints required for authenticated communication.
+
+The next security prerequisite is encryption at rest.
+
+See [`architecture.md`](architecture.md) for the current overall project status.

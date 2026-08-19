@@ -1,4 +1,8 @@
 ---
+# ---------------------------------------------------------------------------
+# Stage PKI
+# ---------------------------------------------------------------------------
+
 - name: Stage Kubernetes certificates from jumpbox
   hosts: jumpbox
   gather_facts: false
@@ -8,12 +12,21 @@
     pki_staging_directory: /tmp/kubernetes-lab-pki
 
   tasks:
+    - name: Recreate local PKI staging directory
+      ansible.builtin.file:
+        path: "{{ pki_staging_directory }}"
+        state: absent
+      delegate_to: localhost
+      become: false
+      run_once: true
+
     - name: Create local PKI staging directory
       ansible.builtin.file:
         path: "{{ pki_staging_directory }}"
         state: directory
         mode: "0700"
       delegate_to: localhost
+      become: false
       run_once: true
 
     - name: Find generated certificates and keys
@@ -25,13 +38,86 @@
         file_type: file
       register: pki_files
 
+    - name: Verify PKI files were found on jumpbox
+      ansible.builtin.assert:
+        that:
+          - pki_files.matched > 0
+        fail_msg: >-
+          No certificate or key files were found in
+          {{ pki_source_directory }}.
+
+    - name: Display PKI files discovered on jumpbox
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            pki_files.files
+            | map(attribute='path')
+            | map('basename')
+            | sort
+          }}
+
     - name: Fetch generated PKI
       ansible.builtin.fetch:
         src: "{{ item.path }}"
-        dest: "{{ pki_staging_directory }}/"
+        dest: "{{ pki_staging_directory }}/{{ item.path | basename }}"
         flat: true
       loop: "{{ pki_files.files }}"
+      loop_control:
+        label: "{{ item.path | basename }}"
       no_log: true
+
+    - name: Find staged PKI files
+      ansible.builtin.find:
+        paths: "{{ pki_staging_directory }}"
+        file_type: file
+      delegate_to: localhost
+      become: false
+      register: staged_pki_files
+
+    - name: Display PKI files staged on controller
+      ansible.builtin.debug:
+        msg: >-
+          {{
+            staged_pki_files.files
+            | map(attribute='path')
+            | map('basename')
+            | sort
+          }}
+
+    - name: Build discovered PKI filename list
+      ansible.builtin.set_fact:
+        discovered_pki_filenames: >-
+          {{
+            pki_files.files
+            | map(attribute='path')
+            | map('basename')
+            | sort
+          }}
+
+    - name: Build staged PKI filename list
+      ansible.builtin.set_fact:
+        staged_pki_filenames: >-
+          {{
+            staged_pki_files.files
+            | map(attribute='path')
+            | map('basename')
+            | sort
+          }}
+
+    - name: Verify all discovered PKI files were staged
+      ansible.builtin.assert:
+        that:
+          - discovered_pki_filenames == staged_pki_filenames
+        fail_msg: >-
+          PKI staging is incomplete. Files discovered on the jumpbox
+          do not match files staged on the Ansible controller.
+        success_msg: >-
+          All discovered PKI files were successfully staged.
+
+
+# ---------------------------------------------------------------------------
+# Distribute PKI
+# ---------------------------------------------------------------------------
 
 - name: Distribute Kubernetes certificates
   hosts:
@@ -53,11 +139,39 @@
         group: root
         mode: "0755"
 
-    - name: Ensure CA private key is not included
+    - name: Prevent CA private key distribution to non-control-plane hosts
       ansible.builtin.assert:
         that:
-          - certificate_files | selectattr('src', 'equalto', 'ca.key') | list | length == 0
-        fail_msg: "CA private key must never be distributed to cluster nodes."
+          - >
+            'ca.key' not in
+            (certificate_files | map(attribute='src') | list)
+            or 'control_plane' in group_names
+        fail_msg: >-
+          The CA private key may only be distributed to
+          control-plane hosts.
+
+    - name: Verify required certificate material is staged
+      ansible.builtin.stat:
+        path: "{{ pki_staging_directory }}/{{ item.src }}"
+      loop: "{{ certificate_files }}"
+      delegate_to: localhost
+      become: false
+      register: required_certificate_files
+      loop_control:
+        label: "{{ item.src }}"
+
+    - name: Fail if required certificate material is missing
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isreg
+        fail_msg: >-
+          Required certificate file {{ item.item.src }}
+          was not found in {{ pki_staging_directory }}
+          on the Ansible controller.
+      loop: "{{ required_certificate_files.results }}"
+      loop_control:
+        label: "{{ item.item.src }}"
 
     - name: Distribute certificate material
       ansible.builtin.copy:
@@ -67,7 +181,14 @@
         group: root
         mode: "{{ item.mode }}"
       loop: "{{ certificate_files }}"
+      loop_control:
+        label: "{{ item.dest }}"
       no_log: true
+
+
+# ---------------------------------------------------------------------------
+# Cleanup
+# ---------------------------------------------------------------------------
 
 - name: Remove staged PKI from Ansible controller
   hosts: localhost

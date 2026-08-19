@@ -31,6 +31,8 @@ etcd
 
 This lab configures the Kubernetes API server to encrypt Secret resources before they are persisted to etcd.
 
+> **Rebuild note:** The encryption key and `encryption-config.yaml` are generated runtime secrets and are intentionally excluded from Git. After recreating the lab VMs, regenerate the encryption configuration on the jumpbox before running `playbooks/distribute-encryption-config.yml`.
+
 ---
 
 ## Encryption Boundary
@@ -60,33 +62,216 @@ Worker nodes do not receive it.
 
 ## Encryption Key
 
-A 32-byte random key is generated on the jumpbox:
+The encryption configuration uses a 32-byte randomly generated symmetric key.
+
+```text
+32 bytes
+    |
+    v
+256 bits
+    |
+    v
+AES-CBC encryption key
+```
+
+The key must:
+
+- Be generated from cryptographically random data
+- Remain confidential
+- Never be committed to Git
+- Never be exposed in logs or documentation
+- Be available to the API server for decryption of previously encrypted data
+
+---
+
+# Manual Encryption Configuration Generation
+
+## Create the Workspace
+
+The encryption configuration is generated on the jumpbox.
+
+SSH to the jumpbox:
+
+```bash
+vagrant ssh jumpbox
+```
+
+Create the workspace:
+
+```bash
+mkdir -p ~/kubernetes-encryption
+cd ~/kubernetes-encryption
+```
+
+Verify the working directory:
+
+```bash
+pwd
+```
+
+Expected:
+
+```text
+/home/vagrant/kubernetes-encryption
+```
+
+---
+
+## Generate the Encryption Key
+
+Generate 32 random bytes and encode them as base64:
 
 ```bash
 ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64)
 ```
 
-The decoded key length can be verified without displaying the key:
+Do not print the value.
+
+Verify that the variable contains data without displaying it:
+
+```bash
+test -n "${ENCRYPTION_KEY}" && echo "Encryption key generated"
+```
+
+Expected:
+
+```text
+Encryption key generated
+```
+
+Verify the decoded key length:
 
 ```bash
 printf '%s' "${ENCRYPTION_KEY}" | base64 -d | wc -c
 ```
 
-Expected result:
+Expected:
 
 ```text
 32
 ```
 
-The resulting 256-bit key is used by the API server's encryption provider.
+This confirms the generated key contains 32 bytes of random data.
 
-The key itself must not be committed to Git or exposed in logs.
+---
+
+## Generate `encryption-config.yaml`
+
+Create the Kubernetes EncryptionConfiguration:
+
+```bash
+cat > encryption-config.yaml <<EOF
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: key1
+              secret: ${ENCRYPTION_KEY}
+      - identity: {}
+EOF
+```
+
+Immediately remove the encryption key from the current shell environment:
+
+```bash
+unset ENCRYPTION_KEY
+```
+
+Verify that it is no longer defined:
+
+```bash
+test -z "${ENCRYPTION_KEY:-}" && echo "Encryption key shell variable cleared"
+```
+
+Expected:
+
+```text
+Encryption key shell variable cleared
+```
+
+The key still exists inside `encryption-config.yaml`, so that file must now be treated as a sensitive credential.
+
+---
+
+## Protect the Generated File
+
+Set restrictive permissions:
+
+```bash
+chmod 600 encryption-config.yaml
+```
+
+Verify:
+
+```bash
+ls -l encryption-config.yaml
+```
+
+Expected permissions:
+
+```text
+-rw-------
+```
+
+Do not use:
+
+```bash
+cat encryption-config.yaml
+```
+
+for routine verification because that would display the encryption key.
+
+The generated file should exist at:
+
+```text
+/home/vagrant/kubernetes-encryption/encryption-config.yaml
+```
+
+---
+
+## Verify the Artifact Without Exposing the Key
+
+Verify the file exists:
+
+```bash
+test -f encryption-config.yaml && echo "Encryption configuration exists"
+```
+
+Expected:
+
+```text
+Encryption configuration exists
+```
+
+Verify its permissions:
+
+```bash
+stat -c '%a %U %G %n' encryption-config.yaml
+```
+
+Expected:
+
+```text
+600 vagrant vagrant encryption-config.yaml
+```
+
+The file can also be hashed for later integrity verification:
+
+```bash
+sha256sum encryption-config.yaml
+```
+
+The hash may be displayed safely; it does not reveal the encryption key.
 
 ---
 
 ## Encryption Configuration
 
-The generated configuration uses the Kubernetes `EncryptionConfiguration` API.
+The generated file uses the Kubernetes `EncryptionConfiguration` API.
 
 Conceptually:
 
@@ -169,7 +354,7 @@ Try AES-CBC
 
 The identity provider must not be placed first.
 
-If it were first:
+If configured as:
 
 ```text
 identity
@@ -184,7 +369,7 @@ new resources would be written without encryption because Kubernetes uses the fi
 
 ## Generated Artifact
 
-The encryption configuration is generated on the jumpbox at:
+The encryption configuration exists on the jumpbox at:
 
 ```text
 /home/vagrant/kubernetes-encryption/encryption-config.yaml
@@ -199,6 +384,18 @@ The file contains symmetric encryption key material and is protected with:
 It is explicitly excluded from Git by `.gitignore`.
 
 The repository stores only the automation required to distribute the configuration.
+
+---
+
+# Distribution
+
+After manual generation and validation, Ansible handles distribution.
+
+Run from the `ansible/` directory:
+
+```bash
+ansible-playbook playbooks/distribute-encryption-config.yml
+```
 
 ---
 
@@ -295,6 +492,14 @@ The staging phase:
 2. Verifies that `encryption-config.yaml` exists on the jumpbox.
 3. Fetches the file from the jumpbox to the controller.
 
+The expected source is:
+
+```text
+/home/vagrant/kubernetes-encryption/encryption-config.yaml
+```
+
+If the generated file does not exist there, the playbook intentionally fails before attempting distribution.
+
 The temporary directory uses restrictive permissions.
 
 The encryption configuration contents are suppressed from normal Ansible output.
@@ -323,7 +528,13 @@ Privilege escalation is required on the server because `/var/lib/kubernetes` is 
 
 Controller-side validation explicitly disables privilege escalation when delegated to localhost.
 
-This prevents a control-plane play using `become: true` from attempting unnecessary `sudo` operations on the Ansible controller.
+This prevents a control-plane play using:
+
+```yaml
+become: true
+```
+
+from attempting unnecessary `sudo` operations on the Ansible controller.
 
 ---
 
@@ -359,7 +570,13 @@ controller
 
 Persistent cluster state is idempotent.
 
-After the initial installation, running the distribution playbook again should leave the server configuration unchanged:
+After the initial installation, running:
+
+```bash
+ansible-playbook playbooks/distribute-encryption-config.yml
+```
+
+again should leave the installed server configuration unchanged:
 
 ```text
 Install encryption configuration
@@ -381,9 +598,9 @@ Removing sensitive temporary material is preferred over retaining it solely to m
 
 ---
 
-## Verification
+# Verification
 
-### File Installation
+## File Installation
 
 Verify the destination without displaying its contents:
 
@@ -401,7 +618,9 @@ group: root
 mode: 0600
 ```
 
-### Worker Isolation
+---
+
+## Worker Isolation
 
 Verify that workers did not receive the encryption configuration:
 
@@ -416,7 +635,9 @@ Both workers should report:
 encryption config absent
 ```
 
-### Integrity
+---
+
+## Integrity
 
 The source and destination can be compared without exposing the encryption key.
 
@@ -436,6 +657,19 @@ ansible server -b -m command -a \
 
 The SHA-256 hashes must match.
 
+This verifies:
+
+```text
+jumpbox source
+      |
+      | fetch/copy
+      v
+server destination
+      |
+      v
+identical contents
+```
+
 ---
 
 ## Runtime Verification
@@ -451,7 +685,8 @@ After the control plane is operational, the lab will:
 1. Create a Kubernetes Secret through the API server.
 2. Retrieve the Secret normally through the Kubernetes API.
 3. Read the corresponding raw value directly from etcd.
-4. Verify that the plaintext secret value is not present in the stored etcd data.
+4. Verify that the plaintext Secret value is not present in the stored etcd data.
+5. Verify the Kubernetes encryption provider prefix.
 
 The expected flow is:
 
@@ -471,7 +706,13 @@ etcd
 encrypted stored value
 ```
 
-This runtime test will validate that encryption at rest is functioning rather than merely configured.
+The raw etcd value is expected to contain a prefix similar to:
+
+```text
+k8s:enc:aescbc:v1:key1
+```
+
+This runtime test verifies that encryption at rest is functioning rather than merely configured.
 
 ---
 
@@ -480,34 +721,116 @@ This runtime test will validate that encryption at rest is functioning rather th
 At completion of this phase:
 
 - The encryption key is generated from cryptographically random data.
+- The key is 32 bytes / 256 bits.
 - The key is not stored in Git.
 - The generated configuration is excluded by `.gitignore`.
+- The generated file is mode `0600`.
 - Only the API server host receives the encryption configuration.
 - Worker nodes do not receive the encryption key.
 - The destination is root-owned and mode `0600`.
 - Temporary controller-side copies are removed after distribution.
 - Source and destination integrity are verified using SHA-256.
-- Runtime encryption will be validated after etcd and the API server are operational.
+- Runtime encryption is validated after etcd and the API server are operational.
 
 ---
 
-## Bootstrap Progress
+## Rebuild Procedure
+
+The encryption configuration is runtime state and is intentionally not stored in Git.
+
+If the virtual machines are destroyed, regenerate it rather than attempting to recover the old key.
+
+For a completely rebuilt cluster with a new/empty etcd datastore, generating a new encryption key is expected.
+
+The recovery sequence is:
 
 ```text
-Infrastructure provisioning        COMPLETE
-OS bootstrap                       COMPLETE
-Architecture validation            COMPLETE
-PKI generation                     COMPLETE
-Certificate distribution           COMPLETE
-Kubeconfig generation              COMPLETE
-Kubeconfig distribution            COMPLETE
-Encryption-at-rest configuration   COMPLETE
-Encryption config distribution     COMPLETE
-etcd                               NEXT
-Control plane                      PENDING
-Workers                            PENDING
-Pod networking                     PENDING
-CoreDNS                            PENDING
+Recreate VMs
+     |
+     v
+Run Ansible bootstrap
+     |
+     v
+Regenerate PKI
+     |
+     v
+Distribute certificates
+     |
+     v
+Regenerate kubeconfigs
+     |
+     v
+Distribute kubeconfigs
+     |
+     v
+Generate new encryption key
+     |
+     v
+Create encryption-config.yaml
+     |
+     v
+Distribute encryption configuration
 ```
 
-The next phase bootstraps etcd, the persistent datastore used by the Kubernetes control plane.
+On the jumpbox:
+
+```bash
+mkdir -p ~/kubernetes-encryption
+cd ~/kubernetes-encryption
+
+ENCRYPTION_KEY=$(head -c 32 /dev/urandom | base64)
+
+printf '%s' "${ENCRYPTION_KEY}" | base64 -d | wc -c
+```
+
+Create the configuration:
+
+```bash
+cat > encryption-config.yaml <<EOF
+apiVersion: apiserver.config.k8s.io/v1
+kind: EncryptionConfiguration
+resources:
+  - resources:
+      - secrets
+    providers:
+      - aescbc:
+          keys:
+            - name: key1
+              secret: ${ENCRYPTION_KEY}
+      - identity: {}
+EOF
+```
+
+Clear the temporary shell variable and protect the file:
+
+```bash
+unset ENCRYPTION_KEY
+chmod 600 encryption-config.yaml
+```
+
+Verify:
+
+```bash
+test -f encryption-config.yaml &&
+stat -c '%a %U %G %n' encryption-config.yaml
+```
+
+Then, from the Ansible controller:
+
+```bash
+ansible-playbook playbooks/distribute-encryption-config.yml
+```
+
+Do not reuse this procedure to rotate the encryption key of an existing cluster containing encrypted etcd data without first planning key rotation and migration. Existing encrypted resources must remain decryptable.
+
+---
+
+## Next Phase
+
+With the encryption configuration installed on the control-plane server, the Kubernetes API server has the configuration required to encrypt sensitive resources before they are persisted.
+
+The next infrastructure dependency is etcd.
+
+Runtime encryption will be validated after both etcd and the Kubernetes API server are operational.
+
+See [`architecture.md`](architecture.md) for the current overall project status.
