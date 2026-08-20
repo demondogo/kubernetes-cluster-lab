@@ -1,0 +1,5 @@
+---
+- name: Remove local worker staging directory
+  ansible.builtin.file:
+    path: "{{ worker_staging_directory }}"
+    state: absent

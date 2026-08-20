@@ -1,0 +1,273 @@
+---
+- name: Create worker directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ cni_binary_directory }}", mode: "0755" }
+    - { path: "{{ cni_config_directory }}", mode: "0755" }
+    - { path: "{{ containerd_config_directory }}", mode: "0755" }
+    - { path: "{{ kubelet_directory }}", mode: "0755" }
+    - { path: "{{ kube_proxy_directory }}", mode: "0755" }
+
+- name: Install kubelet
+  ansible.builtin.copy:
+    src: "{{ worker_staging_directory }}/kubelet"
+    dest: "{{ kubernetes_binary_directory }}/kubelet"
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart kubelet
+
+- name: Install kube-proxy
+  ansible.builtin.copy:
+    src: "{{ worker_staging_directory }}/kube-proxy"
+    dest: "{{ kubernetes_binary_directory }}/kube-proxy"
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart kube-proxy
+
+- name: Install runc
+  ansible.builtin.copy:
+    src: "{{ worker_staging_directory }}/runc"
+    dest: /usr/local/sbin/runc
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart containerd
+
+- name: Copy containerd archive to worker
+  ansible.builtin.copy:
+    src: "{{ worker_staging_directory }}/containerd.tar.gz"
+    dest: /tmp/containerd.tar.gz
+    owner: root
+    group: root
+    mode: "0644"
+
+# Do not extract the containerd archive directly into /.
+#
+# The upstream archive contains a top-level bin/ directory. Ubuntu 24.04
+# uses a merged-usr layout where /bin is a symlink to /usr/bin. Extracting
+# the archive directly into / can replace that symlink with a real directory,
+# causing paths such as /bin/bash to disappear and breaking new SSH logins.
+#
+# Extract into a temporary directory and explicitly install the required
+# binaries instead.
+- name: Create temporary containerd extraction directory
+  ansible.builtin.file:
+    path: /tmp/containerd-extract
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Extract containerd archive
+  ansible.builtin.unarchive:
+    src: /tmp/containerd.tar.gz
+    dest: /tmp/containerd-extract
+    remote_src: true
+    creates: /tmp/containerd-extract/bin/containerd
+
+- name: Install containerd binaries
+  ansible.builtin.copy:
+    src: "/tmp/containerd-extract/bin/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    owner: root
+    group: root
+    mode: "0755"
+    remote_src: true
+  loop:
+    - containerd
+    - containerd-shim-runc-v2
+    - containerd-stress
+    - ctr
+  notify: Restart containerd
+
+- name: Remove temporary containerd files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /tmp/containerd.tar.gz
+    - /tmp/containerd-extract
+
+- name: Copy crictl archive to worker
+  ansible.builtin.copy:
+    src: "{{ worker_staging_directory }}/crictl.tar.gz"
+    dest: /tmp/crictl.tar.gz
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Extract crictl
+  ansible.builtin.unarchive:
+    src: /tmp/crictl.tar.gz
+    dest: "{{ kubernetes_binary_directory }}"
+    remote_src: true
+    creates: "{{ kubernetes_binary_directory }}/crictl"
+
+- name: Remove crictl archive
+  ansible.builtin.file:
+    path: /tmp/crictl.tar.gz
+    state: absent
+
+- name: Copy CNI plugins archive to worker
+  ansible.builtin.copy:
+    src: "{{ worker_staging_directory }}/cni-plugins.tgz"
+    dest: /tmp/cni-plugins.tgz
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Extract CNI plugins
+  ansible.builtin.unarchive:
+    src: /tmp/cni-plugins.tgz
+    dest: "{{ cni_binary_directory }}"
+    remote_src: true
+    creates: "{{ cni_binary_directory }}/bridge"
+
+- name: Remove CNI plugins archive
+  ansible.builtin.file:
+    path: /tmp/cni-plugins.tgz
+    state: absent
+
+- name: Install CNI bridge configuration
+  ansible.builtin.template:
+    src: 10-bridge.conf.j2
+    dest: "{{ cni_config_directory }}/10-bridge.conf"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install CNI loopback configuration
+  ansible.builtin.template:
+    src: 99-loopback.conf.j2
+    dest: "{{ cni_config_directory }}/99-loopback.conf"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install containerd configuration
+  ansible.builtin.template:
+    src: containerd-config.toml.j2
+    dest: "{{ containerd_config_directory }}/config.toml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart containerd
+
+- name: Install kubelet CA certificate
+  ansible.builtin.copy:
+    src: /var/lib/kubernetes/ca.crt
+    dest: "{{ kubelet_directory }}/ca.crt"
+    owner: root
+    group: root
+    mode: "0644"
+    remote_src: true
+  notify: Restart kubelet
+
+- name: Install kubelet certificate
+  ansible.builtin.copy:
+    src: /var/lib/kubernetes/kubelet.crt
+    dest: "{{ kubelet_directory }}/kubelet.crt"
+    owner: root
+    group: root
+    mode: "0644"
+    remote_src: true
+  notify: Restart kubelet
+
+- name: Install kubelet private key
+  ansible.builtin.copy:
+    src: /var/lib/kubernetes/kubelet.key
+    dest: "{{ kubelet_directory }}/kubelet.key"
+    owner: root
+    group: root
+    mode: "0600"
+    remote_src: true
+  notify: Restart kubelet
+
+- name: Install kubelet kubeconfig
+  ansible.builtin.copy:
+    src: /var/lib/kubernetes/kubelet.kubeconfig
+    dest: "{{ kubelet_directory }}/kubeconfig"
+    owner: root
+    group: root
+    mode: "0600"
+    remote_src: true
+  notify: Restart kubelet
+
+- name: Install kube-proxy kubeconfig
+  ansible.builtin.copy:
+    src: /var/lib/kubernetes/kube-proxy.kubeconfig
+    dest: "{{ kube_proxy_directory }}/kubeconfig"
+    owner: root
+    group: root
+    mode: "0600"
+    remote_src: true
+  notify: Restart kube-proxy
+
+- name: Install kubelet configuration
+  ansible.builtin.template:
+    src: kubelet-config.yaml.j2
+    dest: "{{ kubelet_directory }}/kubelet-config.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kubelet
+
+- name: Install kube-proxy configuration
+  ansible.builtin.template:
+    src: kube-proxy-config.yaml.j2
+    dest: "{{ kube_proxy_directory }}/kube-proxy-config.yaml"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart kube-proxy
+
+- name: Install containerd systemd unit
+  ansible.builtin.template:
+    src: containerd.service.j2
+    dest: /etc/systemd/system/containerd.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart containerd
+
+- name: Install kubelet systemd unit
+  ansible.builtin.template:
+    src: kubelet.service.j2
+    dest: /etc/systemd/system/kubelet.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart kubelet
+
+- name: Install kube-proxy systemd unit
+  ansible.builtin.template:
+    src: kube-proxy.service.j2
+    dest: /etc/systemd/system/kube-proxy.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - Reload systemd
+    - Restart kube-proxy
+
+- name: Enable and start worker services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: true
+  loop:
+    - containerd
+    - kubelet
+    - kube-proxy

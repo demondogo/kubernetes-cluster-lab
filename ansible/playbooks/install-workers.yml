@@ -1,0 +1,25 @@
+---
+- name: Stage Kubernetes worker artifacts
+  hosts: jumpbox
+  gather_facts: false
+
+  roles:
+    - role: worker
+      worker_action: stage
+
+- name: Install Kubernetes workers
+  hosts: workers
+  gather_facts: false
+  become: true
+
+  roles:
+    - role: worker
+      worker_action: install
+
+- name: Clean worker staging area
+  hosts: localhost
+  gather_facts: false
+
+  roles:
+    - role: worker
+      worker_action: cleanup

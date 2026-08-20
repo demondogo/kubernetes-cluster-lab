@@ -1,3 +1,13 @@
 ---
-- name: Configure worker certificates
-  ansible.builtin.import_tasks: certificates.yml
+- name: Validate worker action
+  ansible.builtin.assert:
+    that:
+      - worker_action is defined
+      - worker_action in ["stage", "install", "cleanup"]
+    fail_msg: >-
+      worker_action must be one of:
+      stage, install, cleanup
+
+- name: Run worker operation
+  ansible.builtin.include_tasks:
+    file: "{{ worker_action }}.yml"

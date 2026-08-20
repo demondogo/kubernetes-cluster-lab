@@ -109,6 +109,12 @@ Current Ansible responsibilities include:
 - Jumpbox configuration
 - Certificate distribution
 - Kubeconfig distribution
+- Encryption configuration distribution
+- etcd installation and configuration
+- Kubernetes control-plane installation
+- Kubernetes worker installation
+- Container runtime configuration
+- CNI plugin installation and configuration
 
 The roles are designed to be idempotent wherever they manage persistent cluster state.
 
@@ -124,7 +130,7 @@ Instead, Vagrant's generated SSH configuration is exported to:
 .vagrant/ssh-config
 ```
 
-The configuration contains Vagrant's NAT-forwarded SSH endpoints and generated SSH credentials.
+The configuration contains Vagrant's NAT-forwarded SSH endpoints and SSH credentials.
 
 Ansible consumes this configuration rather than duplicating Vagrant's SSH implementation details in inventory.
 
@@ -181,7 +187,9 @@ node-0 -> 10.200.0.0/24
 node-1 -> 10.200.1.0/24
 ```
 
-This network will later provide the foundation for pod routing between workers.
+These networks provide the address space for Pods running on each worker.
+
+Cluster-wide routing between the worker Pod CIDRs is established in the Pod networking phase.
 
 ---
 
@@ -227,19 +235,48 @@ This keeps different kinds of information separate:
 
 ```text
 inventory
+
     "Which machines exist?"
 
 group_vars
+
     "What does this group have in common?"
 
 host_vars
+
     "What is unique about this machine?"
 
 roles
+
     "How should the machine be configured?"
 
 playbooks
+
     "Which operations run where and in what order?"
+```
+
+Host-specific variables include values such as:
+
+```text
+node_ip
+pod_cidr
+certificate_files
+kubeconfig_files
+```
+
+For example:
+
+```text
+server
+node_ip -> 192.168.56.20
+
+node-0
+node_ip  -> 192.168.56.50
+pod_cidr -> 10.200.0.0/24
+
+node-1
+node_ip  -> 192.168.56.60
+pod_cidr -> 10.200.1.0/24
 ```
 
 ---
@@ -327,23 +364,41 @@ The cluster Certificate Authority establishes the root of trust:
       API server    workers      clients
 ```
 
-The CA private key remains on the jumpbox.
+The CA private key originates on the jumpbox.
 
-It is never distributed to the control plane or worker nodes.
+The control-plane server also requires the CA private key because `kube-controller-manager` performs certificate-signing operations using:
 
-Ansible handles only the repetitive distribution of the certificates required by each machine.
+```text
+--cluster-signing-cert-file=/var/lib/kubernetes/ca.crt
+--cluster-signing-key-file=/var/lib/kubernetes/ca.key
+```
+
+The resulting security boundary is:
 
 ```text
 jumpbox
    |
-   +-- ca.key                 NEVER DISTRIBUTED
+   +-- ca.key
    |
-   +-- server credentials -------> server
+   +-------> server
+   |          |
+   |          +-- kube-controller-manager
    |
-   +-- node-0 credentials -------> node-0
+   +-------> server credentials
    |
-   +-- node-1 credentials -------> node-1
+   +-------> node-0 credentials
+   |
+   +-------> node-1 credentials
+
+node-0    X ca.key
+node-1    X ca.key
 ```
+
+The CA private key is therefore permitted only on the jumpbox and control-plane hosts.
+
+It is never distributed to worker nodes.
+
+Ansible enforces this boundary during certificate distribution.
 
 This separates certificate **creation and trust decisions** from certificate **transport and installation**.
 
@@ -421,9 +476,196 @@ The administrative kubeconfig is intentionally not distributed to cluster nodes.
 
 ---
 
+## Encryption at Rest
+
+The Kubernetes API server encrypts configured resources before they are persisted to etcd.
+
+The encryption boundary is:
+
+```text
+Kubernetes client
+       |
+       v
+kube-apiserver
+       |
+       | encryption-config.yaml
+       v
+    AES-CBC
+       |
+       v
+      etcd
+```
+
+The encryption configuration is generated manually on the jumpbox and distributed only to the control-plane server.
+
+Worker nodes do not receive the encryption key.
+
+Runtime encryption has been validated by creating a Kubernetes Secret through the API server and inspecting the raw value stored in etcd.
+
+The plaintext Secret value was absent and the stored value contained:
+
+```text
+k8s:enc:aescbc:v1:key1
+```
+
+This verifies that encryption at rest is functioning rather than merely configured.
+
+---
+
+## Kubernetes Runtime Architecture
+
+The completed control plane runs on `server`:
+
+```text
+server
+├── etcd
+├── kube-apiserver
+├── kube-controller-manager
+└── kube-scheduler
+```
+
+The workers run:
+
+```text
+node-0
+├── containerd
+├── runc
+├── kubelet
+├── kube-proxy
+└── CNI plugins
+
+node-1
+├── containerd
+├── runc
+├── kubelet
+├── kube-proxy
+└── CNI plugins
+```
+
+The resulting component relationship is:
+
+```text
+                          server
+                     192.168.56.20
+                           |
+                  Kubernetes API
+                       TCP 6443
+                           |
+               +-----------+-----------+
+               |                       |
+               v                       v
+            node-0                  node-1
+        192.168.56.50           192.168.56.60
+        10.200.0.0/24           10.200.1.0/24
+               |                       |
+        +------+------+         +------+------+
+        |      |      |         |      |      |
+        v      v      v         v      v      v
+   containerd kubelet proxy containerd kubelet proxy
+        |                         |
+        v                         v
+       runc                      runc
+```
+
+Both kubelets authenticate to the API server using their node-specific PKI identities and register themselves as Kubernetes Nodes.
+
+Both workers currently report:
+
+```text
+Ready
+```
+
+---
+
+## Worker Runtime Installation
+
+Worker runtime artifacts are installed explicitly rather than extracted directly into the root filesystem.
+
+Ubuntu 24.04 uses a merged-usr filesystem layout:
+
+```text
+/bin -> usr/bin
+```
+
+The upstream containerd archive contains a top-level:
+
+```text
+bin/
+```
+
+directory.
+
+Extracting that archive directly into `/` can replace the `/bin` symbolic link with a real directory.
+
+This can break critical operating-system paths such as:
+
+```text
+/bin/bash
+```
+
+and prevent new SSH sessions from starting.
+
+The worker role therefore uses:
+
+```text
+containerd archive
+        |
+        v
+temporary extraction
+        |
+        v
+/tmp/containerd-extract/bin/
+        |
+        | explicit installation
+        v
+/usr/local/bin/
+```
+
+The containerd systemd service consequently starts:
+
+```text
+/usr/local/bin/containerd
+```
+
+rather than relying on the archive's original `bin/` layout.
+
+This separates external archive layout from operating-system filesystem layout and preserves the Ubuntu merged-usr structure.
+
+See [`workers.md`](workers.md) for implementation and troubleshooting details.
+
+---
+
+## Pod Network Architecture
+
+The controller manager is configured with the cluster-wide Pod CIDR:
+
+```text
+10.200.0.0/16
+```
+
+Each worker receives a dedicated subnet:
+
+```text
+                     10.200.0.0/16
+                           |
+               +-----------+-----------+
+               |                       |
+               v                       v
+        10.200.0.0/24           10.200.1.0/24
+             node-0                  node-1
+```
+
+The worker CNI bridge configuration uses the host-specific `pod_cidr` variable.
+
+This establishes the local Pod network on each worker.
+
+The next networking phase establishes routing between these independent worker Pod CIDRs.
+
+---
+
 ## Sensitive Artifact Transport
 
-Certificates and kubeconfigs originate on the jumpbox, while Ansible runs from the host.
+Certificates, kubeconfigs, and other generated cluster artifacts originate on the jumpbox, while Ansible runs from the host.
 
 Sensitive files therefore follow this transport path:
 
@@ -474,22 +716,24 @@ Playbooks and roles have deliberately different responsibilities.
 
 ```text
 Playbook
+
     "Where and when?"
 
 Role
+
     "How?"
 ```
 
-For example, credential distribution is orchestrated by a playbook:
+For example, worker installation is orchestrated by:
 
 ```text
-distribute-kubeconfigs.yml
+install-workers.yml
         |
         +--> jumpbox
         |      |
         |      +--> stage
         |
-        +--> control_plane + workers
+        +--> workers
         |      |
         |      +--> install
         |
@@ -498,20 +742,33 @@ distribute-kubeconfigs.yml
                +--> cleanup
 ```
 
-The corresponding role contains the implementation:
+The implementation resides in:
 
 ```text
-roles/kubeconfigs/
+roles/worker/
 ├── defaults/
 │   └── main.yml
-└── tasks/
-    ├── main.yml
-    ├── stage.yml
-    ├── install.yml
-    └── cleanup.yml
+├── handlers/
+│   └── main.yml
+├── tasks/
+│   ├── main.yml
+│   ├── stage.yml
+│   ├── install.yml
+│   └── cleanup.yml
+└── templates/
+    ├── 10-bridge.conf.j2
+    ├── 99-loopback.conf.j2
+    ├── containerd-config.toml.j2
+    ├── containerd.service.j2
+    ├── kubelet-config.yaml.j2
+    ├── kubelet.service.j2
+    ├── kube-proxy-config.yaml.j2
+    └── kube-proxy.service.j2
 ```
 
-This pattern keeps orchestration separate from reusable configuration logic.
+The same orchestration pattern is used for other multi-stage operations such as kubeconfig and encryption configuration distribution.
+
+This keeps orchestration separate from reusable configuration logic.
 
 ---
 
@@ -567,12 +824,29 @@ Verify endpoints and identities
 Distribute kubeconfigs with Ansible
 ```
 
+The worker runtime also demonstrates why the validation step matters:
+
+```text
+Understand upstream installation
+        |
+        v
+Test against target operating system
+        |
+        v
+Identify filesystem assumption
+        |
+        v
+Adapt installation safely
+        |
+        v
+Automate corrected behavior
+```
+
 This approach avoids turning Kubernetes bootstrap into an opaque automation exercise.
 
 The objective is to understand the system first and automate the repetitive parts second.
 
 ---
-
 
 ## Kubernetes Bootstrap Workflow
 
@@ -615,7 +889,7 @@ Ansible etcd bootstrap
 Ansible control-plane bootstrap
         |
         v
-Worker bootstrap
+Ansible worker bootstrap
         |
         v
 Pod networking
@@ -625,6 +899,8 @@ CoreDNS
 ```
 
 The workflow intentionally separates operations that are performed manually for learning from repetitive configuration and distribution tasks that are automated with Ansible.
+
+---
 
 ## Project Progress
 
@@ -644,80 +920,68 @@ This section is the canonical source for the current implementation status of th
 | Encryption config distribution | Ansible | Complete |
 | etcd bootstrap | Ansible | Complete |
 | Control-plane bootstrap | Ansible | Complete |
-| Worker bootstrap | Ansible | In Progress |
-| Pod networking | TBD | Pending |
+| Worker bootstrap | Ansible | Complete |
+| Pod networking | TBD | In Progress |
 | CoreDNS | TBD | Pending |
 
 ### Current Phase
 
-The Kubernetes control plane is operational.
+The Kubernetes control plane and both worker nodes are operational.
 
-The following control-plane components are running on `server`:
+```text
+                         Kubernetes Cluster
+
+                              server
+                         192.168.56.20
+                              |
+                   Kubernetes API :6443
+                              |
+                  +-----------+-----------+
+                  |                       |
+                  v                       v
+               node-0                  node-1
+           192.168.56.50           192.168.56.60
+           10.200.0.0/24           10.200.1.0/24
+                  |                       |
+                Ready                   Ready
+```
+
+The control-plane services are operational:
 
 ```text
 server
-├── etcd
-├── kube-apiserver
-├── kube-controller-manager
-└── kube-scheduler
+├── etcd                       ✓
+├── kube-apiserver             ✓
+├── kube-controller-manager    ✓
+└── kube-scheduler             ✓
 ```
 
-The control-plane stack has been validated beyond basic service availability:
+The worker services are operational:
 
 ```text
-Control Plane
-     |
-     +-- etcd healthy                         ✓
-     |
-     +-- kube-apiserver active                ✓
-     |
-     +-- kube-controller-manager active       ✓
-     |
-     +-- kube-scheduler active                ✓
-     |
-     +-- API readiness checks                 ✓
-     |
-     +-- API reachable over 192.168.56.20     ✓
-     |
-     +-- advertised endpoint correct          ✓
-     |
-     +-- admin authentication                 ✓
-     |
-     +-- encryption at rest                   ✓
+node-0 / node-1
+├── containerd                 ✓
+├── runc                       ✓
+├── kubelet                    ✓
+├── kube-proxy                 ✓
+└── CNI plugins                ✓
 ```
 
-The API server advertises the cluster-facing address:
+Both kubelets successfully authenticate to the Kubernetes API server, register their machines as Kubernetes Nodes, and report:
 
 ```text
-192.168.56.20:6443
+Ready
 ```
 
-rather than the VirtualBox NAT interface.
+The cluster has therefore progressed from infrastructure provisioning through a functioning control plane and registered worker nodes.
 
-Encryption at rest has also been validated end-to-end by creating a Kubernetes Secret through the API server and inspecting its raw representation in etcd.
-
-The plaintext Secret value was absent, while the stored value contained the expected encryption-provider marker:
+The next phase establishes cluster-wide Pod networking so workloads using:
 
 ```text
-k8s:enc:aescbc:v1:key1
+node-0 -> 10.200.0.0/24
+node-1 -> 10.200.1.0/24
 ```
 
-The next implementation phase is bootstrapping the worker nodes:
+can communicate across worker boundaries.
 
-```text
-node-0
-├── containerd
-├── runc
-├── CNI plugins
-├── kubelet
-└── kube-proxy
-
-node-1
-├── containerd
-├── runc
-├── CNI plugins
-├── kubelet
-└── kube-proxy
-```
-
-Once the workers are registered and operational, the remaining phases will establish pod networking and cluster DNS.
+After Pod networking is validated, the remaining bootstrap phase is cluster DNS through CoreDNS.

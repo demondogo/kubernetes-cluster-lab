@@ -1,19 +1,31 @@
 ---
-worker_certificates:
-  - name: ca.pem
-    mode: "0644"
+# Source artifacts on the jumpbox
+worker_source_directory: /home/vagrant/kubernetes-the-hard-way/downloads
+worker_staging_directory: /tmp/kubernetes-lab-worker
 
-  - name: "{{ inventory_hostname }}.pem"
-    mode: "0600"
+# Binary installation
+kubernetes_binary_directory: /usr/local/bin
 
-  - name: "{{ inventory_hostname }}-key.pem"
-    mode: "0600"
+# CNI
+cni_binary_directory: /opt/cni/bin
+cni_config_directory: /etc/cni/net.d
 
-  - name: kube-proxy.pem
-    mode: "0600"
+# containerd
+containerd_config_directory: /etc/containerd
 
-  - name: kube-proxy-key.pem
-    mode: "0600"
+# kubelet
+kubelet_directory: /var/lib/kubelet
 
-kubernetes_cert_source_dir: "/home/vagrant/certs"
-kubernetes_cert_dest_dir: "/etc/kubernetes/pki"
+# kube-proxy
+kube_proxy_directory: /var/lib/kube-proxy
+
+# Kubernetes component logging
+worker_log_level: 2
+
+# Artifact versions
+cni_plugins_version: "v1.6.2"
+containerd_version: "2.1.0-beta.0"
+crictl_version: "v1.32.0"
+
+# Artifact architecture
+worker_artifact_arch: "arm64"

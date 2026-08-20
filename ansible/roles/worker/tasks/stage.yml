@@ -1,0 +1,70 @@
+---
+- name: Recreate local worker staging directory
+  ansible.builtin.file:
+    path: "{{ worker_staging_directory }}"
+    state: absent
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Create local worker staging directory
+  ansible.builtin.file:
+    path: "{{ worker_staging_directory }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+  run_once: true
+
+- name: Define worker artifacts
+  ansible.builtin.set_fact:
+    worker_artifacts:
+      - src: "{{ worker_source_directory }}/worker/kubelet"
+        dest: kubelet
+
+      - src: "{{ worker_source_directory }}/worker/kube-proxy"
+        dest: kube-proxy
+
+      - src: "{{ worker_source_directory }}/runc.{{ worker_artifact_arch }}"
+        dest: runc
+
+      - src: >-
+          {{ worker_source_directory }}/containerd-{{ containerd_version }}-linux-{{ worker_artifact_arch }}.tar.gz
+        dest: containerd.tar.gz
+
+      - src: >-
+          {{ worker_source_directory }}/crictl-{{ crictl_version }}-linux-{{ worker_artifact_arch }}.tar.gz
+        dest: crictl.tar.gz
+
+      - src: >-
+          {{ worker_source_directory }}/cni-plugins-linux-{{ worker_artifact_arch }}-{{ cni_plugins_version }}.tgz
+        dest: cni-plugins.tgz
+
+- name: Verify worker artifacts exist on jumpbox
+  ansible.builtin.stat:
+    path: "{{ item.src }}"
+  loop: "{{ worker_artifacts }}"
+  register: worker_artifact_stats
+  loop_control:
+    label: "{{ item.dest }}"
+
+- name: Fail if a worker artifact is missing
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+    fail_msg: >-
+      Required worker artifact {{ item.item.src }}
+      was not found on the jumpbox.
+  loop: "{{ worker_artifact_stats.results }}"
+  loop_control:
+    label: "{{ item.item.dest }}"
+
+- name: Fetch worker artifacts
+  ansible.builtin.fetch:
+    src: "{{ item.src }}"
+    dest: "{{ worker_staging_directory }}/{{ item.dest }}"
+    flat: true
+  loop: "{{ worker_artifacts }}"
+  loop_control:
+    label: "{{ item.dest }}"

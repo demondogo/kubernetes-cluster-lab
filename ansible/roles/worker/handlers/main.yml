@@ -1,0 +1,19 @@
+---
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Restart containerd
+  ansible.builtin.systemd_service:
+    name: containerd
+    state: restarted
+
+- name: Restart kubelet
+  ansible.builtin.systemd_service:
+    name: kubelet
+    state: restarted
+
+- name: Restart kube-proxy
+  ansible.builtin.systemd_service:
+    name: kube-proxy
+    state: restarted
