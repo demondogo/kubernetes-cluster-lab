@@ -895,6 +895,14 @@ Ansible worker bootstrap
 Pod networking
         |
         v
+Manual kubectl remote access
+        |
+        v
+Pod network routes
+        |
+        v
+Smoke tests
+
 CoreDNS
 ```
 
@@ -921,8 +929,9 @@ This section is the canonical source for the current implementation status of th
 | etcd bootstrap | Ansible | Complete |
 | Control-plane bootstrap | Ansible | Complete |
 | Worker bootstrap | Ansible | Complete |
-| Pod networking | TBD | In Progress |
-| CoreDNS | TBD | Pending |
+| kubectl remote access | Manual | Complete |
+| Pod network routes | TBD | In Progress |
+| Smoke tests | Manual | Pending |
 
 ### Current Phase
 
@@ -973,15 +982,96 @@ Both kubelets successfully authenticate to the Kubernetes API server, register t
 Ready
 ```
 
-The cluster has therefore progressed from infrastructure provisioning through a functioning control plane and registered worker nodes.
+Remote administrative access from the jumpbox is also configured.
 
-The next phase establishes cluster-wide Pod networking so workloads using:
+The default kubectl configuration is:
+
+```text
+/home/vagrant/.kube/config
+```
+
+with the active context:
+
+```text
+kubernetes-the-hard-way
+```
+
+The administrative path is now:
+
+```text
+jumpbox
+   |
+   | kubectl
+   v
+~/.kube/config
+   |
+   | admin identity
+   v
+server.kubernetes.local:6443
+   |
+   v
+kube-apiserver
+   |
+   +-- node-0   Ready
+   |
+   +-- node-1   Ready
+```
+
+Remote access has been validated without specifying an explicit kubeconfig:
+
+```bash
+kubectl version
+kubectl get nodes -o wide
+```
+
+The client and server are both running:
+
+```text
+Kubernetes v1.32.3
+```
+
+At this stage, the lab has completed:
+
+```text
+Infrastructure provisioning       ✓
+Operating-system bootstrap         ✓
+PKI and certificate distribution   ✓
+Kubeconfig generation/distribution ✓
+Encryption at rest                 ✓
+etcd                               ✓
+Control plane                      ✓
+Worker bootstrap                   ✓
+kubectl remote access              ✓
+```
+
+The next Kubernetes The Hard Way milestone is Section 11:
+
+```text
+Provisioning Pod Network Routes
+```
+
+Each worker currently owns an independent Pod CIDR:
 
 ```text
 node-0 -> 10.200.0.0/24
 node-1 -> 10.200.1.0/24
 ```
 
-can communicate across worker boundaries.
+The local CNI configuration establishes these Pod networks on their respective workers, but cluster-wide routing between the worker Pod CIDRs has not yet been configured.
 
-After Pod networking is validated, the remaining bootstrap phase is cluster DNS through CoreDNS.
+The next phase establishes:
+
+```text
+node-0
+10.200.0.0/24
+      |
+      | Pod network routing
+      |
+      v
+10.200.1.0/24
+node-1
+```
+
+so Pods running on different workers can communicate across node boundaries.
+
+After Pod network routing is validated, the final Kubernetes The Hard Way milestone is the cluster smoke test.
