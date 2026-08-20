@@ -4,4 +4,4 @@ architecture_map:
   x86_64: amd64
   aarch64: arm64
 
-kubernetes_arch: "{{ architecture_map[ansible_architecture] }}"
+kubernetes_arch: "{{ architecture_map[ansible_facts['architecture']] }}"

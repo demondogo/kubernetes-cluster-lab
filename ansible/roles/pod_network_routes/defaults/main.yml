@@ -1,0 +1,3 @@
+---
+pod_network_interface: eth1
+pod_network_routes_file: /etc/netplan/60-kubernetes-routes.yaml

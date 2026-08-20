@@ -1,0 +1,40 @@
+---
+- name: Validate worker routing variables
+  ansible.builtin.assert:
+    that:
+      - hostvars[item].node_ip is defined
+      - hostvars[item].pod_cidr is defined
+    fail_msg: >-
+      Worker {{ item }} must define both node_ip and pod_cidr.
+  loop: "{{ groups['workers'] }}"
+  run_once: true
+
+- name: Build required Pod network routes
+  ansible.builtin.set_fact:
+    pod_network_routes: >-
+      {{
+        groups['workers']
+        | reject('equalto', inventory_hostname)
+        | map('extract', hostvars)
+        | list
+      }}
+
+- name: Install persistent Pod network routes
+  ansible.builtin.template:
+    src: 60-kubernetes-routes.yaml.j2
+    dest: "{{ pod_network_routes_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+  register: pod_network_routes_config
+
+- name: Validate netplan configuration
+  ansible.builtin.command:
+    cmd: netplan generate
+  changed_when: false
+  when: pod_network_routes_config.changed
+
+- name: Apply netplan configuration
+  ansible.builtin.command:
+    cmd: netplan apply
+  when: pod_network_routes_config.changed

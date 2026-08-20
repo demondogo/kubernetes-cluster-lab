@@ -1,0 +1,10 @@
+---
+- name: Configure Kubernetes Pod network routes
+  hosts:
+    - control_plane
+    - workers
+  become: true
+  gather_facts: true
+
+  roles:
+    - pod_network_routes

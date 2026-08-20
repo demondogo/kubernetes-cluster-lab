@@ -1,0 +1,10 @@
+---
+network:
+  version: 2
+  ethernets:
+    {{ pod_network_interface }}:
+      routes:
+{% for worker in pod_network_routes %}
+        - to: "{{ worker.pod_cidr }}"
+          via: "{{ worker.node_ip }}"
+{% endfor %}
